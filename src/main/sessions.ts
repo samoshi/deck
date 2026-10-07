@@ -1,5 +1,6 @@
 import { promptTitle, sessionKey, type Agent } from "../shared/agents.js";
 import { kvGet, kvSet, openDb } from "./db.js";
+import type { RememberedTab } from "../shared/settings.js";
 
 // Registry of Claude Code and Codex sessions, fed by hook callbacks. Sessions
 // started outside deck are tracked too — they just carry no term_id.
@@ -50,9 +51,54 @@ export function termWorkspace(termId: string): string | undefined {
   return termWorkspaces.get(termId);
 }
 
+// Where each live terminal sits inside its workspace: which layer, and which
+// group within that layer. Kept beside the workspace stamps and for the same
+// reason, since terminals outlive the main process.
+const TERM_PLACEMENTS_KEY = "term_placements";
+export interface TermPlacement { layer?: string; group?: string }
+const termPlacements = new Map<string, TermPlacement>(Object.entries(kvGet<Record<string, TermPlacement>>(TERM_PLACEMENTS_KEY) ?? {}));
+const savePlacements = () => kvSet(TERM_PLACEMENTS_KEY, Object.fromEntries(termPlacements));
+
+/** The layer and group a terminal was opened in or moved to. */
+export function termPlacement(termId: string): TermPlacement {
+  return termPlacements.get(termId) ?? {};
+}
+
+/** Places a terminal. A field left undefined keeps its current value; a group
+ *  of null takes the terminal out of its group without moving it. */
+export function placeTerm(termId: string, placement: { layer?: string; group?: string | null }): void {
+  const current = termPlacement(termId);
+  const next: TermPlacement = {
+    layer: placement.layer ?? current.layer,
+    group: placement.group === null ? undefined : (placement.group ?? current.group),
+  };
+  if (next.layer === current.layer && next.group === current.group) return;
+  termPlacements.set(termId, next);
+  savePlacements();
+}
+
+// The tabs each workspace had when deck last ran. Terminals die with a full
+// quit, so this is what a layer is rebuilt from: the rows come back paused and
+// start a terminal again when the user unpauses them.
+const REMEMBERED_TABS_KEY = "remembered_tabs";
+
+/** Every workspace's remembered tabs, by workspace id. */
+export function rememberedTabs(): Record<string, RememberedTab[]> {
+  return kvGet<Record<string, RememberedTab[]>>(REMEMBERED_TABS_KEY) ?? {};
+}
+
+/** Replaces one workspace's remembered tabs, leaving the others alone. */
+export function rememberTabs(workspace: string, tabs: RememberedTab[]): void {
+  kvSet(REMEMBERED_TABS_KEY, { ...rememberedTabs(), [workspace]: tabs });
+}
+
 /** Moves a terminal's sessions along with it to another workspace. */
 export function moveTermSessions(termId: string, workspace: string): void {
   linkTermToWorkspace(termId, workspace);
+  // Layers and groups belong to one workspace, so the terminal arrives in the
+  // new workspace unplaced and falls to its first layer.
+  termPlacements.delete(termId);
+  savePlacements();
   openDb().prepare("UPDATE agent_sessions SET workspace = ? WHERE term_id = ?").run(workspace, termId);
   notify();
 }
@@ -75,6 +121,8 @@ export function clearTermLinks(liveTermIds: string[]): void {
   const live = new Set(liveTermIds);
   for (const id of [...termWorkspaces.keys()]) if (!live.has(id)) termWorkspaces.delete(id);
   saveTermWorkspaces();
+  for (const id of [...termPlacements.keys()]) if (!live.has(id)) termPlacements.delete(id);
+  savePlacements();
   const keep = liveTermIds.map(() => "?").join(",") || "''";
   openDb()
     .prepare(`UPDATE agent_sessions SET status = 'ended', term_id = NULL WHERE term_id IS NOT NULL AND term_id NOT IN (${keep})`)
@@ -250,6 +298,8 @@ export function endTermSessions(termId: string): void {
   pendingLinks.delete(termId);
   termWorkspaces.delete(termId);
   saveTermWorkspaces();
+  termPlacements.delete(termId);
+  savePlacements();
   openDb().prepare("DELETE FROM agent_sessions WHERE session_id = ?").run(`pending:${termId}`);
   openDb().prepare("UPDATE agent_sessions SET status = 'ended', term_id = NULL, updated_at = ? WHERE term_id = ?")
     .run(Date.now(), termId);

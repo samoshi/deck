@@ -2,6 +2,8 @@ import { sessionAgent, sessionKey, type AgentLaunch } from "../../shared/agents.
 import type { TermMeta } from "../../main/pty.js";
 import type { AgentSession } from "../../main/sessions.js";
 import type { Worktree } from "../../main/worktrees.js";
+import { layerOf } from "../../shared/settings.js";
+import { restoredTabs } from "./lib/restore.js";
 import { useSettings } from "./lib/useSettings.js";
 import {
   createContext,
@@ -28,6 +30,13 @@ export interface TermTab extends AgentLaunch {
   tabColor?: string;
   /** agent session this tab was opened to resume. */
   sessionId?: string;
+  /** Layer the tab sits in; unset means it predates layers and falls to the first. */
+  layerId?: string;
+  /** Group within that layer, when it is in one. */
+  groupId?: string;
+  /** A tab deck remembered from a previous run, with no terminal behind it
+   *  yet. Resuming starts one in the same folder, on the same agent session. */
+  paused?: boolean;
 }
 
 export interface OpenOptions extends AgentLaunch {
@@ -45,7 +54,10 @@ export interface WorktreeClose {
 }
 
 interface TabStore {
+  /** The active layer's tabs: what the sidebar lists and the number chords reach. */
   tabs: TermTab[];
+  /** Every tab of the workspace, across all layers, for search and counts. */
+  allTabs: TermTab[];
   activeId?: string;
   /** False until terminals surviving from before the reload are restored. */
   ready: boolean;
@@ -62,9 +74,18 @@ interface TabStore {
   setTitle: (termId: string, title: string) => void;
   setTabColor: (termId: string, color: string | null) => void;
   renameTab: (termId: string, title: string) => void;
-  moveTab: (termId: string, index: number) => void;
+  /** Reorders a tab to sit where `beforeId` sits; the end of the list without one. */
+  moveTab: (termId: string, beforeId?: string) => void;
   /** Hands the terminal to another workspace; it leaves this one's tabs without closing. */
   moveTabToWorkspace: (termId: string, workspace: string) => void;
+  /** Moves a tab to another layer, leaving whatever group it was in. */
+  moveTabToLayer: (termId: string, layer: string) => void;
+  /** Puts a tab in a group, or takes it out of one with null. */
+  setTabGroup: (termId: string, group: string | null) => void;
+  /** Starts the terminal behind a paused tab, in its place in the list. */
+  resumeTab: (termId: string) => Promise<void>;
+  /** Paused tabs still waiting in a layer, by layer id. */
+  pausedByLayer: Record<string, number>;
 }
 
 const Ctx = createContext<TabStore | null>(null);
@@ -82,6 +103,8 @@ export function TabProvider({ children }: { children: ReactNode }) {
     cwd: meta.cwd,
     busy: meta.busy,
     customTitle: localStorage.getItem(`deck.tab.name.${meta.id}`) ?? undefined,
+    layerId: meta.layer,
+    groupId: meta.group,
     agent: meta.agent ?? (/^codex(?:\s|$)/.test(meta.command ?? "") ? "codex" : /^claude(?:\s|$)/.test(meta.command ?? "") ? "claude" : undefined),
     sessionId: meta.sessionId ?? (meta.command?.startsWith("codex resume ") ? sessionKey("codex", /codex resume ['"]?([^\s'"]+)/.exec(meta.command)?.[1] ?? "") : undefined) ?? /--resume ['"]?([^\s'"]+)/.exec(meta.command ?? "")?.[1],
   });
@@ -109,16 +132,26 @@ export function TabProvider({ children }: { children: ReactNode }) {
   const windowMode = settings?.windowMode;
   const workspace = settings?.activeWorkspace;
   useEffect(() => {
-    void Promise.all([window.deck.term.list(), window.deck.sessions.list()]).then(([terms, sessions]) => {
+    void Promise.all([window.deck.term.list(), window.deck.sessions.list(), window.deck.term.remembered()]).then(([terms, sessions, remembered]) => {
       const order: string[] = JSON.parse(localStorage.getItem("deck.tab.order") ?? "[]");
       const rank = (id: string) => { const i = order.indexOf(id); return i < 0 ? order.length : i; };
-      setTabs([...terms].sort((a, b) => rank(a.id) - rank(b.id)).map((meta) => withSession(toTab(meta), sessions)));
-      setActiveId((active) => terms.some((term) => term.id === active) ? active : terms.at(-1)?.id);
+      const live = [...terms].sort((a, b) => rank(a.id) - rank(b.id)).map((meta) => withSession(toTab(meta), sessions));
+      setTabs(restoredTabs(live, remembered));
+      setActiveId((active) => terms.some((term) => term.id === active) ? active : live.at(-1)?.termId);
       setReady(true);
     });
   }, [windowMode, workspace]);
 
+  // What each terminal's agent called its session, so a tab paused tomorrow
+  // still reads as the work it was rather than as "claude".
+  const sessionTitles = useRef(new Map<string, string>());
+  const noteTitles = (sessions: AgentSession[]): void => {
+    for (const session of sessions) if (session.term_id && session.title) sessionTitles.current.set(session.term_id, session.title);
+  };
+  useEffect(() => { void window.deck.sessions.list().then(noteTitles); }, []);
+
   useEffect(() => window.deck.sessions.onChanged((sessions) => {
+    noteTitles(sessions);
     setTabs((tabs) => tabs.map((tab) => withSession(tab, sessions)));
   }), []);
 
@@ -152,7 +185,31 @@ export function TabProvider({ children }: { children: ReactNode }) {
     setTabs((tabs) => tabs.some((tab) => tab.termId === meta.id) ? tabs : [...tabs, toTab(meta)]);
   }), []);
 
+  // Starts the terminal a paused tab stands for, in its own place in the list.
+  // The created event may land first, so the real tab is deduped either way.
+  const resumeTab = useCallback(async (termId: string) => {
+    const tab = tabsRef.current.find((tab) => tab.termId === termId);
+    if (!tab?.paused || resuming.current.has(termId)) return;
+    resuming.current.add(termId);
+    try {
+      const meta = await window.deck.term.create({ cwd: tab.cwd, agent: tab.agent, sessionId: tab.sessionId, layer: tab.layerId, group: tab.groupId });
+      if (tab.customTitle) localStorage.setItem(`deck.tab.name.${meta.id}`, tab.customTitle);
+      setTabs((tabs) => {
+        const real = toTab(meta);
+        return tabs.filter((other) => other.termId !== meta.id).map((other) => other.termId === termId ? real : other);
+      });
+      setActiveId(meta.id);
+    } finally {
+      resuming.current.delete(termId);
+    }
+  }, []);
+
   const closeTab = useCallback((termId: string, kill = true) => {
+    // A paused tab has no terminal to kill and nothing to reopen.
+    if (tabsRef.current.find((tab) => tab.termId === termId)?.paused) {
+      setTabs((tabs) => tabs.filter((tab) => tab.termId !== termId));
+      return;
+    }
     if (kill) window.deck.term.kill(termId);
     // A killed terminal also reports its exit, so the same tab may arrive here twice.
     const tab = tabsRef.current.find((tab) => tab.termId === termId);
@@ -172,7 +229,7 @@ export function TabProvider({ children }: { children: ReactNode }) {
   // tab still closes on the first click.
   const requestCloseTab = useCallback((termId: string) => {
     const tab = tabsRef.current.find((tab) => tab.termId === termId);
-    if (!tab?.cwd) { closeTab(termId); return; }
+    if (!tab?.cwd || tab.paused) { closeTab(termId); return; }
     void window.deck.worktrees.at(tab.cwd).then((worktree) => {
       if (!worktree) { closeTab(termId); return; }
       setWorktreeClose({ termId, worktree });
@@ -199,15 +256,28 @@ export function TabProvider({ children }: { children: ReactNode }) {
     setTabs((tabs) => tabs.map((tab) => tab.termId === termId ? { ...tab, customTitle: title.trim() || undefined } : tab));
   }, []);
 
-  const moveTab = useCallback((termId: string, index: number) => {
+  // The sidebar only ever shows one layer, so a drop names the tab to land in
+  // front of rather than a position in the full list.
+  const moveTab = useCallback((termId: string, beforeId?: string) => {
     setTabs((tabs) => {
       const tab = tabs.find((t) => t.termId === termId);
       if (!tab) return tabs;
       const next = tabs.filter((t) => t !== tab);
-      next.splice(index, 0, tab);
+      const at = beforeId ? next.findIndex((t) => t.termId === beforeId) : -1;
+      next.splice(at < 0 ? next.length : at, 0, tab);
       localStorage.setItem("deck.tab.order", JSON.stringify(next.map((t) => t.termId)));
       return next;
     });
+  }, []);
+
+  const moveTabToLayer = useCallback((termId: string, layer: string) => {
+    window.deck.term.place(termId, { layer, group: null });
+    setTabs((tabs) => tabs.map((tab) => tab.termId === termId ? { ...tab, layerId: layer, groupId: undefined } : tab));
+  }, []);
+
+  const setTabGroup = useCallback((termId: string, group: string | null) => {
+    window.deck.term.place(termId, { group });
+    setTabs((tabs) => tabs.map((tab) => tab.termId === termId ? { ...tab, groupId: group ?? undefined } : tab));
   }, []);
 
   const moveTabToWorkspace = useCallback((termId: string, workspace: string) => {
@@ -235,9 +305,72 @@ export function TabProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => window.deck.term.onExit((id) => closeTab(id, false)), [closeTab]);
 
+  // Only the active layer's tabs are on screen. The rest keep running and keep
+  // their place in the list; they are simply not what this layer is about.
+  const layers = settings?.layers;
+  const activeLayer = settings?.activeLayer;
+  const layerTabs = useMemo(
+    () => layers?.length ? tabs.filter((tab) => layerOf(tab.layerId, layers) === activeLayer) : tabs,
+    [tabs, layers, activeLayer],
+  );
+
+  // Focusing a tab that lives in another layer switches to it, so resuming a
+  // session or opening an issue's terminal never lands on a blank screen; a
+  // paused tab starts its terminal rather than showing an empty pane.
+  const focusTab = useCallback((termId: string) => {
+    const tab = tabsRef.current.find((tab) => tab.termId === termId);
+    const layer = layers?.length ? layerOf(tab?.layerId, layers) : undefined;
+    if (layer && layer !== activeLayer) void window.deck.updateSettings({ activeLayer: layer });
+    if (tab?.paused) { void resumeTab(termId); return; }
+    setActiveId(termId);
+  }, [layers, activeLayer, resumeTab]);
+
+  // A layer switch leaves the active tab behind; the layer's own last running
+  // tab takes over, and a layer of paused tabs shows none until one is resumed.
+  useEffect(() => {
+    const running = layerTabs.filter((tab) => !tab.paused);
+    setActiveId((active) => running.some((tab) => tab.termId === active) ? active : running.at(-1)?.termId);
+  }, [layerTabs]);
+
+  // What deck brings back next time. Written on every change so a crash loses
+  // nothing, and skipped entirely when the user asked deck to forget.
+  const restoreTabs = settings?.restoreTabs;
+  useEffect(() => {
+    if (!ready || !restoreTabs || restoreTabs === "off" || !layers?.length) return;
+    window.deck.term.remember(tabs.map((tab) => ({
+      id: tab.termId,
+      layer: layerOf(tab.layerId, layers),
+      group: tab.groupId,
+      cwd: tab.cwd,
+      agent: tab.agent,
+      sessionId: tab.sessionId,
+      title: tab.customTitle || sessionTitles.current.get(tab.termId) || tab.title,
+      customTitle: tab.customTitle,
+    })));
+  }, [tabs, ready, restoreTabs, layers]);
+
+  // On the first load after a quit, the tabs deck is set to bring back running
+  // start themselves; the rest wait paused until the user unpauses them.
+  const started = useRef(false);
+  useEffect(() => {
+    if (!ready || started.current || !restoreTabs || !layers?.length) return;
+    started.current = true;
+    if (restoreTabs === "off" || restoreTabs === "paused") return;
+    const wanted = tabsRef.current.filter((tab) => tab.paused
+      && (restoreTabs === "all" || layerOf(tab.layerId, layers) === activeLayer));
+    void wanted.reduce((queue, tab) => queue.then(() => resumeTab(tab.termId)), Promise.resolve());
+  }, [ready, restoreTabs, layers, activeLayer, resumeTab]);
+
+  const pausedByLayer = useMemo(() => tabs.reduce<Record<string, number>>((counts, tab) => {
+    if (!tab.paused || !layers?.length) return counts;
+    const id = layerOf(tab.layerId, layers);
+    counts[id] = (counts[id] ?? 0) + 1;
+    return counts;
+  }, {}), [tabs, layers]);
+
   const store = useMemo<TabStore>(
-    () => ({ tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, focusTab: setActiveId, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace }),
-    [tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace],
+    () => ({ tabs: layerTabs, allTabs: tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, resumeTab, pausedByLayer }),
+    [layerTabs, tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, resumeTab, pausedByLayer],
   );
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }

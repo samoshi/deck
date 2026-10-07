@@ -6,10 +6,10 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { SERVER_PORT } from "./port.js";
-import type { ClientMessage, HostMessage, SpawnRequest, TermMeta } from "./ptyHost.js";
-import { clearTermLinks, linkTermToIssue, linkTermToWorkspace, moveTermSessions, registerAgentTerm, endTermSessions, termWorkspace, updateForegroundSession } from "./sessions.js";
+import type { ClientMessage, HostMessage, SpawnRequest, TermMeta as HostTermMeta } from "./ptyHost.js";
+import { clearTermLinks, linkTermToIssue, linkTermToWorkspace, moveTermSessions, placeTerm, registerAgentTerm, endTermSessions, rememberTabs, rememberedTabs, termPlacement, termWorkspace, updateForegroundSession } from "./sessions.js";
 import { getSettings } from "./settings.js";
-import { workspaceOf, type WindowRole } from "../shared/settings.js";
+import { workspaceOf, type RememberedTab, type WindowRole } from "../shared/settings.js";
 import { LegacyAgentDetector } from "./legacyAgentDetection.js";
 
 /** Role of each renderer, so terminals can be tagged with the window that
@@ -32,7 +32,18 @@ function visibleTo(contents: WebContents, meta: TermMeta): boolean {
   return (meta.windowRole ?? "main") === windowRoleOf(contents);
 }
 
-export type { TermMeta } from "./ptyHost.js";
+/** A terminal as a window sees it: the host's metadata, plus where main has
+ *  placed it inside its workspace. Placement is main's alone, so the renderer
+ *  reads it from here rather than from the host. */
+export interface TermMeta extends HostTermMeta {
+  layer?: string;
+  group?: string;
+}
+
+/** The host's record of a terminal with main's placement folded in. */
+function placed(meta: HostTermMeta): TermMeta {
+  return { ...meta, ...termPlacement(meta.id) };
+}
 
 /** Scrollback of a pty plus the size it was rendered at. */
 export interface TermReplay {
@@ -65,6 +76,10 @@ export interface TermCreateOptions extends AgentLaunch {
   /** Ticket this terminal was spawned for — links its agent session. */
   issueKey?: string;
   windowRole?: WindowRole;
+  /** Layer the terminal opens in; the active one when left out. */
+  layer?: string;
+  /** Group within that layer, when the tab is being opened inside one. */
+  group?: string;
 }
 
 function spawnRequest(opts: TermCreateOptions): SpawnRequest {
@@ -303,7 +318,7 @@ export async function startPtyHost(): Promise<void> {
   ipcMain.handle("term:create", (event, opts: TermCreateOptions = {}) => createTerm({ ...opts, windowRole: windowRoles.get(event.sender) }));
   ipcMain.handle("term:list", async (event): Promise<TermMeta[]> => {
     const { terms } = await client!.request<"list">({ type: "list" });
-    return terms.filter((meta) => visibleTo(event.sender, meta));
+    return terms.filter((meta) => visibleTo(event.sender, meta)).map(placed);
   });
   ipcMain.handle("term:attach", (event, id: string) => client!.attach(id, event.sender));
   ipcMain.on("term:input", (_e, id: string, data: string) => client!.send({ type: "input", id, data }));
@@ -320,6 +335,15 @@ export async function startPtyHost(): Promise<void> {
     client!.send({ type: "workspace", id, workspace });
     moveTermSessions(id, workspace);
   });
+  // Layers and groups are the renderer's to arrange; main only remembers where
+  // each terminal was put, since the tab list is rebuilt from scratch on reload.
+  ipcMain.on("term:place", (_e, id: string, placement: { layer?: string; group?: string | null }) => {
+    placeTerm(id, placement);
+  });
+  // Terminals die with a full quit, so the window also writes down what its
+  // tabs were; that is what the next start brings back, paused.
+  ipcMain.handle("term:remembered", () => rememberedTabs()[getSettings().activeWorkspace] ?? []);
+  ipcMain.on("term:remember", (_e, tabs: RememberedTab[]) => rememberTabs(getSettings().activeWorkspace, tabs));
 }
 
 /** Opens a terminal (optionally running an agent) and tells every window about it. */
@@ -327,9 +351,16 @@ export async function createTerm(opts: TermCreateOptions = {}): Promise<TermMeta
   const spawn = spawnRequest(opts);
   const reply = await client!.request<"created">({ type: "create", spawn });
   // Hosts surviving a dev restart may predate structured agent metadata.
-  const meta = { ...reply.meta, agent: spawn.agent, sessionId: spawn.sessionId, prompt: spawn.prompt, workspace: spawn.workspace };
+  const meta: TermMeta = { ...reply.meta, agent: spawn.agent, sessionId: spawn.sessionId, prompt: spawn.prompt, workspace: spawn.workspace };
   if (meta.issueKey) linkTermToIssue(meta.id, meta.issueKey);
   if (meta.workspace) linkTermToWorkspace(meta.id, meta.workspace);
+  // A terminal opens in the layer and group that are on screen, so a new tab
+  // lands where the user is looking rather than at the top of the sidebar.
+  const { activeLayer, groups } = getSettings();
+  const group = opts.group && groups.some((g) => g.id === opts.group && g.layer === (opts.layer ?? activeLayer)) ? opts.group : undefined;
+  placeTerm(meta.id, { layer: opts.layer ?? activeLayer, group });
+  meta.layer = opts.layer ?? activeLayer;
+  meta.group = group;
   registerAgentTerm(meta);
   for (const window of BrowserWindow.getAllWindows()) if (visibleTo(window.webContents, meta)) window.webContents.send("term:created", meta);
   return meta;

@@ -73,6 +73,16 @@ The queue is fed either by GitHub's review requests or by a column of your board
 
 One per client or company. Each workspace has its own tracker connection, GitHub owner, reviews-queue source and folders, and its own terminal tabs and agent sessions (right-click a tab to rename it or move it to another workspace); the board, the review queue, the PR inbox and the sidebar follow whichever is active. Switch from the titlebar, <kbd>⌘⌥→</kbd> / <kbd>⌘⌥←</kbd>, ⌘K (`Workspace: …`) or **Settings → Workspaces**. Everything about Deck itself (theme, hotkey, agents, auto-fix) is shared and lives in **Settings → General**.
 
+### Layers and groups
+
+Inside one workspace, a **layer** is an exclusive set of tabs: `Current work`, `Personal`, `AI tools`. Switching a layer shows its tabs and hides the rest, so the sidebar stays the length of what you are doing rather than the length of the day. Layers live in the strip under the sidebar search; click to switch, <kbd>⌘⌥↑</kbd> / <kbd>⌘⌥↓</kbd> to step, ⌘K (`Layer: …`) to jump. Double-click a pill to rename it, right-click for a colour, drag a tab onto one to move it there.
+
+Within a layer, a **group** is a named run of tabs that folds into a single header carrying its count: right-click a tab to start one, drag tabs onto the header to fill it, click the header to collapse. Collapsing hides the rows, never the terminals; they keep running, <kbd>⌘1</kbd>–<kbd>⌘9</kbd> still reaches them, and a collapsed group shows a badge when an agent inside it wants something.
+
+Layers and groups belong to their workspace, so each client gets its own set, and a tab moved to another workspace arrives in that workspace's first layer.
+
+Both survive a full quit. Deck writes down what each layer held, and on the next start the layer you were last in comes back running while every other layer's tabs wait **paused**: a dashed row carrying its name, folder, branch and agent session, with a Resume button under the cursor and a `Resume all` above the layer. Resuming starts the terminal in the same folder and picks the agent session back up where it was, so nothing runs, and nothing is spent, until you ask for it. **Settings → General → On start, bring tabs back** switches this to every layer running, everything paused, or off.
+
 ### Auto-fix
 
 Opt-in, off by default. Once enabled in **Settings → General**, Deck starts a fix agent in the repo's local checkout when CI fails or a PR of yours gets merge conflicts, once per push. The agent stops with the diff and waits for your approval before pushing unless you let it push unattended.
@@ -125,6 +135,8 @@ Install and authenticate [`claude`](https://docs.anthropic.com/en/docs/claude-co
 | <kbd>⌘1</kbd>–<kbd>⌘9</kbd> | Switch terminal |
 | <kbd>⌘B</kbd> | Toggle sidebar |
 | <kbd>⌘⌥1</kbd> <kbd>⌘⌥2</kbd> <kbd>⌘⌥3</kbd> <kbd>⌘⌥4</kbd> | Terminal / Board / Agent / Reviews |
+| <kbd>⌘⌥←</kbd> / <kbd>⌘⌥→</kbd> | Previous / next workspace |
+| <kbd>⌘⌥↑</kbd> / <kbd>⌘⌥↓</kbd> | Previous / next layer |
 | <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> | Split right / down |
 | <kbd>⌘F</kbd> | Find in terminal |
 | <kbd>⌘J</kbd> | Toggle multiline input |
