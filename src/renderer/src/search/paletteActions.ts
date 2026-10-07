@@ -80,8 +80,11 @@ export function usePaletteActions({ onView, onSettings, onSidebar }: PaletteActi
   );
   if (activeId) actions.push(item("×", "Close tab", chord("tab.close"), () => requestCloseTab(activeId)));
   actions.push(
-    item("◫", "Split pane right", chord("split.right"), inTerminal("split-right")),
+    item("◫", "Split pane up", chord("split.up"), inTerminal("split-up")),
     item("◫", "Split pane down", chord("split.down"), inTerminal("split-down")),
+    item("◫", "Split pane left", chord("split.left"), inTerminal("split-left")),
+    item("◫", "Split pane right", chord("split.right"), inTerminal("split-right")),
+    item("⛶", "Zoom the focused pane", chord("pane.zoom"), inTerminal("pane-zoom"), { keywords: "maximize pane split" }),
     item("⌕", "Find in terminal", chord("find"), inTerminal("find")),
     item("⌫", "Clear terminal", "Scrollback", inTerminal("clear")),
     item("↓", "Export terminal output", "Save as text", inTerminal("export")),

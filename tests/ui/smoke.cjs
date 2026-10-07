@@ -34,6 +34,8 @@ app.whenReady().then(async () => {
     await wait(150);
   };
   const visiblePanes = () => run(`[...document.querySelectorAll('.xterm')].filter(element => element.offsetWidth > 0).length`);
+  const chord = (init) => run(`window.dispatchEvent(new KeyboardEvent('keydown', {bubbles:true,cancelable:true,${init}}))`);
+  const splitFromWidth = () => run(`Math.round(window.splitFrom.getBoundingClientRect().width)`);
   await wait(800);
   await click('Build a better terminal (Codex)');
   await screenshot('normal');
@@ -80,6 +82,38 @@ app.whenReady().then(async () => {
   await screenshot('zen');
   await click('Exit zen view');
   if (await visiblePanes() !== 2) throw Error('Leaving Zen did not restore split');
+
+  // WezTerm-style panes: ⌘⇧ and an arrow splits that way (up and left putting
+  // the new pane first), ⌃⌘ moves focus, ⌘Z zooms and releases.
+  await run(`window.splitFrom = [...document.querySelectorAll('.xterm')].find(element => element.offsetWidth > 0 && element.contains(document.activeElement))`);
+  await chord(`key:'ArrowLeft',code:'ArrowLeft',metaKey:true,shiftKey:true`);
+  await wait(500);
+  if (await visiblePanes() !== 3) throw Error('⌘⇧← did not open a third pane');
+  const placement = await run(`(() => {
+    const target = window.splitFrom.getBoundingClientRect();
+    const focused = [...document.querySelectorAll('.xterm')].find(element => element.offsetWidth > 0 && element.contains(document.activeElement));
+    if (!focused) return 'focus left the panes';
+    if (focused === window.splitFrom) return 'focus stayed on the pane it split from';
+    const box = focused.getBoundingClientRect();
+    if (box.left >= target.left) return 'the new pane is not left of the pane it split from';
+    if (Math.abs(box.top - target.top) > 2) return 'a left split moved the pane to another row';
+    return 'ok';
+  })()`);
+  if (placement !== 'ok') throw Error('⌘⇧←: ' + placement);
+  await screenshot('split-left');
+  await chord(`key:'ArrowRight',code:'ArrowRight',metaKey:true,ctrlKey:true`);
+  await wait(200);
+  if (!(await run(`window.splitFrom.contains(document.activeElement)`))) throw Error('⌃⌘→ did not move focus to the pane on the right');
+  if (!(await run(`[...document.querySelectorAll('.xterm')].filter(element => element.offsetWidth > 0 && !element.contains(document.activeElement)).every(element => Boolean(element.closest('.terminal-pane-inactive')))`))) throw Error('Unfocused panes are not dimmed');
+  const plainWidth = await splitFromWidth();
+  await chord(`key:'z',code:'KeyZ',metaKey:true`);
+  await wait(250);
+  if (await splitFromWidth() <= plainWidth) throw Error('⌘Z did not grow the focused pane');
+  await screenshot('split-zoom');
+  await chord(`key:'z',code:'KeyZ',metaKey:true`);
+  await wait(250);
+  if (Math.abs(await splitFromWidth() - plainWidth) > 2) throw Error('⌘Z again did not restore the pane width');
+
   await click('Build a better terminal (Codex)');
   await click('Presentation view');
   if (await visiblePanes() !== 1) throw Error('Presentation should focus one pane');
@@ -200,7 +234,7 @@ app.whenReady().then(async () => {
   await click('Exit presentation view');
   if ((await run('window.deck.fullscreenCalls().at(-1)')) !== false) throw Error('Leaving the mode did not restore the window');
   if (errors.length) throw Error(errors.join('\n'));
-  console.log('UI smoke passed: focus, splits, files, Zen, Presentation, font sizing, session navigation, Escape, sidebar, Codex launch, themes, custom preview/save, plugin worker panel, plugin themes, disable/enable agent command, Codex history preview and resume, recent suggestions, expiry, dismissal, search and close all, agent page greeting and rail, answer, tool trace and reset, agent dock sharing the conversation, review queue navigation and approve-then-next, Zen and Presentation on the reviews page.');
+  console.log('UI smoke passed: focus, splits, directional splits, pane focus, pane zoom and dimming, files, Zen, Presentation, font sizing, session navigation, Escape, sidebar, Codex launch, themes, custom preview/save, plugin worker panel, plugin themes, disable/enable agent command, Codex history preview and resume, recent suggestions, expiry, dismissal, search and close all, agent page greeting and rail, answer, tool trace and reset, agent dock sharing the conversation, review queue navigation and approve-then-next, Zen and Presentation on the reviews page.');
   window.destroy();
   app.quit();
 }).catch((error) => { console.error(error); app.exit(1); });

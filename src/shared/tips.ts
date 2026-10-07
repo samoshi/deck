@@ -39,7 +39,7 @@ export const tipRules: readonly TipRule[] = [
   { id: "new-tab-key", action: { name: "new-tab-button", times: 3 }, message: "⌘T opens a new terminal." },
   { id: "close-tab-key", action: { name: "close-tab-button", times: 3 }, message: "⌘W closes the active terminal." },
   { id: "switch-tab-keys", action: { name: "tab-click", times: 5 }, message: "⌘1 to ⌘9 switch between the first nine tabs." },
-  { id: "split-keys", action: { name: "split-button", times: 2 }, message: "⌘D splits right and ⌘⇧D splits down." },
+  { id: "split-keys", action: { name: "split-button", times: 2 }, message: "⌘⇧ and an arrow splits that way; ⌘⌥ and an arrow splits into a new agent." },
   { id: "sidebar-key", action: { name: "sidebar-button", times: 2 }, message: "⌘B toggles the sidebar." },
   { id: "settings-key", action: { name: "settings-button", times: 2 }, message: "⌘, opens Settings." },
 ];
