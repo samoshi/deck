@@ -1,19 +1,26 @@
 import { useDisplayMode } from "../chrome/DisplayMode.js";
 import { useEffect, useRef, useState } from "react";
-import { agentLabels } from "../../../shared/agents.js";
+import { agentLabels, type Agent } from "../../../shared/agents.js";
 import { onOpenTerminalTab } from "../lib/bus.js";
 import { useTips } from "../tips/TipsProvider.js";
 import { useAgentSessions } from "../lib/useSessions.js";
 import { shortPath, useGitSummary } from "../lib/useGitSummary.js";
 import { useSettings } from "../lib/useSettings.js";
-import { matchKeybind, resolveKeybinds } from "../../../shared/keybinds.js";
+import { formatChord, matchKeybind, resolveKeybinds } from "../../../shared/keybinds.js";
 import { useTabs } from "../store.js";
 import { Icon } from "../board/icons.js";
 import { ChangesPanel } from "./ChangesPanel.js";
 import { TerminalPane } from "./TerminalPane.js";
 import { FileExplorer } from "./FileExplorer.js";
 import { onTerminalAction, terminalAction } from "./actions.js";
-import { paneIds, paneRects, paneDividers, pruneLayout, resizePane, splitPane, type PaneLayout, type PaneDivider } from "./layout.js";
+import { paneIds, paneInDirection, paneRects, paneDividers, pruneLayout, resizePane, splitFor, splitPane, zoomPane, type PaneDirection, type PaneLayout, type PaneDivider } from "./layout.js";
+
+const splitButtons = [
+  { towards: "up", icon: "splitUp", label: "Split up" },
+  { towards: "down", icon: "splitDown", label: "Split down" },
+  { towards: "left", icon: "splitLeft", label: "Split left" },
+  { towards: "right", icon: "splitRight", label: "Split right" },
+] as const;
 
 function savedLayouts(): PaneLayout[] {
   try { return JSON.parse(localStorage.getItem("deck.pane-layouts") ?? "[]"); } catch { return []; }
@@ -27,6 +34,8 @@ export function TerminalView({ visible }: { visible: boolean }) {
   const [filesVisited, setFilesVisited] = useState(false);
   const [layouts, setLayouts] = useState<PaneLayout[]>(savedLayouts);
   const [composer, setComposer] = useState(false);
+  /** The ratios to put back when the zoom is released; set means zoomed. */
+  const [unzoomed, setUnzoomed] = useState<PaneLayout>();
   const [command, setCommand] = useState("");
   const [error, setError] = useState("");
   const splitting = useRef(false);
@@ -38,6 +47,7 @@ export function TerminalView({ visible }: { visible: boolean }) {
   const git = useGitSummary(cwd);
   const settings = useSettings();
   const { report } = useTips();
+  const keybinds = resolveKeybinds(settings?.keybinds);
   const defaultAgent = settings?.defaultAgent ?? "claude";
   const needsReview = session?.status === "needs_review";
   const currentLayout = layouts.find((layout) => paneIds(layout).includes(activeId ?? ""));
@@ -57,28 +67,41 @@ export function TerminalView({ visible }: { visible: boolean }) {
   useEffect(() => { if (ready) localStorage.setItem("deck.pane-layouts", JSON.stringify(layouts)); }, [layouts, ready]);
   useEffect(() => { if (panel === "files") setFilesVisited(true); }, [panel]);
   useEffect(() => { if (needsReview) setPanel("changes"); }, [needsReview, activeId]);
-  const split = async (direction: "row" | "column") => {
+  const split = async (towards: PaneDirection, agent?: Agent) => {
     if (!activeId || splitting.current) return;
     splitting.current = true;
+    const { direction, before } = splitFor[towards];
+    setUnzoomed(undefined);
     try {
-      const meta = await window.deck.term.create({ cwd: settings?.newTerminalCwd.split === "default" ? undefined : cwd });
+      const meta = await window.deck.term.create({ cwd: settings?.newTerminalCwd.split === "default" ? undefined : cwd, agent });
       setLayouts((layouts) => {
         const withoutNew = layouts.filter((layout) => !("termId" in layout && layout.termId === meta.id));
         const found = withoutNew.some((layout) => paneIds(layout).includes(activeId));
-        return found ? withoutNew.map((layout) => splitPane(layout, activeId, meta.id, direction))
-          : [...withoutNew, splitPane({ termId: activeId }, activeId, meta.id, direction)];
+        return found ? withoutNew.map((layout) => splitPane(layout, activeId, meta.id, direction, before))
+          : [...withoutNew, splitPane({ termId: activeId }, activeId, meta.id, direction, before)];
       });
       focusTab(meta.id);
     } catch (error) { setError(String(error)); }
     finally { splitting.current = false; }
   };
+  const focusPane = (towards: PaneDirection) => {
+    const next = currentLayout && activeId && paneInDirection(currentLayout, activeId, towards);
+    if (next) focusTab(next);
+  };
+  // A zoom is a layout, not a mode: it rewrites the ratios and keeps the
+  // pre-zoom ones so the same key puts the split back where it was.
+  const toggleZoom = () => {
+    if (!activeId || !currentLayout) return;
+    setUnzoomed(unzoomed ? undefined : currentLayout);
+    setLayouts((layouts) => layouts.map((layout) => paneIds(layout).includes(activeId) ? unzoomed ?? zoomPane(layout, activeId) : layout));
+  };
   useEffect(() => onTerminalAction((action) => {
     if (action === "changes") setPanel((panel) => panel === "changes" ? undefined : "changes");
     if (action === "files") setPanel((panel) => panel === "files" ? undefined : "files");
     if (action === "composer") setComposer((open) => !open);
-    if (action === "split-right") void split("row");
-    if (action === "split-down") void split("column");
-  }), [activeId, cwd, settings]);
+    if (action.startsWith("split-")) void split(action.slice("split-".length) as PaneDirection);
+    if (action === "pane-zoom") toggleZoom();
+  }), [activeId, cwd, settings, unzoomed, currentLayout]);
   // Summoning the window back restores keyboard focus to the active terminal.
   useEffect(() => {
     if (!visible) return;
@@ -89,16 +112,17 @@ export function TerminalView({ visible }: { visible: boolean }) {
   }, [visible]);
   useEffect(() => {
     if (!visible) return;
-    const keybinds = resolveKeybinds(settings?.keybinds);
     const onKey = (event: KeyboardEvent) => {
       const command = matchKeybind(keybinds, event);
-      if (command === "split.right") { event.preventDefault(); void split("row"); }
-      if (command === "split.down") { event.preventDefault(); void split("column"); }
+      if (command?.startsWith("split.")) { event.preventDefault(); void split(command.slice("split.".length) as PaneDirection); }
+      if (command?.startsWith("splitAgent.")) { event.preventDefault(); void split(command.slice("splitAgent.".length) as PaneDirection, defaultAgent); }
+      if (command === "pane.zoom") { event.preventDefault(); toggleZoom(); }
+      else if (command?.startsWith("pane.")) { event.preventDefault(); focusPane(command.slice("pane.".length) as PaneDirection); }
       if (command === "changes" || command === "find" || command === "composer") { event.preventDefault(); terminalAction(command); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [visible, activeId, cwd, settings]);
+  }, [visible, activeId, cwd, settings, unzoomed, currentLayout]);
   const resize = (divider: PaneDivider, ratio: number) => setLayouts((layouts) => layouts.map((layout) => paneIds(layout).includes(activeId ?? "") ? resizePane(layout, divider.path, ratio) : layout));
   const submit = () => {
     if (!activeId || !command.trim()) return;
@@ -114,8 +138,8 @@ export function TerminalView({ visible }: { visible: boolean }) {
           <div className="mt-1 truncate text-[13px] font-semibold text-soft">{activeTab?.customTitle || session?.title || activeTab?.agent || activeTab?.title || "Terminal"}</div>
         </div>
         <div className="flex items-center gap-1">
-          <button title="Split right (⌘D)" aria-label="Split right" onClick={() => { report({ action: "split-button" }); void split("row"); }} className="toolbar-button"><Icon name="splitRight" size={15} /></button>
-          <button title="Split down (⌘⇧D)" aria-label="Split down" onClick={() => { report({ action: "split-button" }); void split("column"); }} className="toolbar-button"><Icon name="splitDown" size={15} /></button>
+          {splitButtons.map(({ towards, icon, label }) => <button key={towards} title={`${label} (${formatChord(keybinds[`split.${towards}`])})`} aria-label={label} onClick={() => { report({ action: "split-button" }); void split(towards); }} className="toolbar-button"><Icon name={icon} size={15} /></button>)}
+          <button title={`Zoom the focused pane (${formatChord(keybinds["pane.zoom"])})`} aria-label="Zoom pane" aria-pressed={Boolean(unzoomed)} disabled={rects.length < 2} onClick={toggleZoom} className="toolbar-button disabled:opacity-30"><Icon name="maximize" size={15} /></button>
           <button title="Find in terminal (⌘F)" aria-label="Find in terminal" onClick={() => terminalAction("find")} className="toolbar-button"><Icon name="search" size={15} /></button>
           <button title="Export terminal output" aria-label="Export terminal output" onClick={() => terminalAction("export")} className="toolbar-button"><Icon name="download" size={15} /></button>
         </div>
@@ -125,7 +149,7 @@ export function TerminalView({ visible }: { visible: boolean }) {
         {tabs.map((tab) => {
           const rect = rects.find((rect) => rect.termId === tab.termId);
           const shown = visible && Boolean(rect);
-          return <div key={tab.termId} className={`absolute overflow-hidden ${rects.length > 1 ? `border ${tab.termId === activeId ? "border-edge3" : "border-edge"}` : ""}`}
+          return <div key={tab.termId} className={`absolute overflow-hidden ${rects.length > 1 ? `border ${tab.termId === activeId ? "border-edge3" : "terminal-pane-inactive border-edge"}` : ""}`}
             style={rect ? { left: `${rect.left}%`, top: `${rect.top}%`, width: `${rect.width}%`, height: `${rect.height}%`, display: shown ? "flex" : "none", flexDirection: "column" } : { display: "none" }}
             onMouseDown={() => { if (activeId !== tab.termId) focusTab(tab.termId); }}>
             {rects.length > 1 && <div className="flex h-6 shrink-0 items-center gap-2 bg-panel px-3 font-sans text-[10px] text-mut"><Icon name="terminal" size={10} /><span className="truncate">{tab.customTitle || tab.title}</span><button className="ml-auto" title="Close pane" onClick={() => requestCloseTab(tab.termId)}><Icon name="x" size={10} /></button></div>}
