@@ -9,7 +9,10 @@ export type KeybindCommand =
   | "workspace.next" | "workspace.prev"
   | "layer.next" | "layer.prev"
   | "tab.new" | "tab.newAgent" | "tab.close" | "tab.reopen" | "tab.next" | "tab.prev"
-  | "split.right" | "split.down" | "find" | "composer" | "changes"
+  | "split.up" | "split.down" | "split.left" | "split.right"
+  | "splitAgent.up" | "splitAgent.down" | "splitAgent.left" | "splitAgent.right"
+  | "pane.up" | "pane.down" | "pane.left" | "pane.right" | "pane.zoom"
+  | "find" | "composer" | "changes"
   | "font.increase" | "font.decrease" | "font.reset";
 
 export type Keybinds = Record<KeybindCommand, string>;
@@ -32,18 +35,30 @@ export const keybindInfos: KeybindInfo[] = [
   { id: "view.reviews", label: "Reviews page", group: "Workbench", default: "Meta+Alt+Digit4" },
   { id: "zen", label: "Toggle Zen view", group: "Workbench", default: "Meta+Shift+Enter" },
   { id: "presentation", label: "Toggle Presentation view", group: "Workbench", default: "Meta+Shift+P" },
-  { id: "workspace.next", label: "Next workspace", group: "Workbench", default: "Meta+Alt+ArrowRight" },
-  { id: "workspace.prev", label: "Previous workspace", group: "Workbench", default: "Meta+Alt+ArrowLeft" },
-  { id: "layer.next", label: "Next layer", group: "Workbench", default: "Meta+Alt+ArrowDown" },
-  { id: "layer.prev", label: "Previous layer", group: "Workbench", default: "Meta+Alt+ArrowUp" },
+  { id: "workspace.next", label: "Next workspace", group: "Workbench", default: "Meta+Shift+]" },
+  { id: "workspace.prev", label: "Previous workspace", group: "Workbench", default: "Meta+Shift+[" },
+  // The splits take the arrows with Cmd-Alt and Cmd-Shift; layers sit a tier above them.
+  { id: "layer.next", label: "Next layer", group: "Workbench", default: "Meta+Alt+Shift+ArrowDown" },
+  { id: "layer.prev", label: "Previous layer", group: "Workbench", default: "Meta+Alt+Shift+ArrowUp" },
   { id: "tab.new", label: "New terminal tab", group: "Terminal", default: "Meta+T" },
   { id: "tab.newAgent", label: "New tab running the default agent", group: "Terminal", default: "Meta+Shift+N" },
   { id: "tab.close", label: "Close the active tab", group: "Terminal", default: "Meta+W" },
   { id: "tab.reopen", label: "Reopen the last closed tab", group: "Terminal", default: "Meta+Shift+T" },
   { id: "tab.next", label: "Next tab", group: "Terminal", default: "Ctrl+Tab" },
   { id: "tab.prev", label: "Previous tab", group: "Terminal", default: "Ctrl+Shift+Tab" },
-  { id: "split.right", label: "Split right", group: "Terminal", default: "Meta+D" },
-  { id: "split.down", label: "Split down", group: "Terminal", default: "Meta+Shift+D" },
+  { id: "split.up", label: "Split up", group: "Terminal", default: "Meta+Shift+ArrowUp" },
+  { id: "split.down", label: "Split down", group: "Terminal", default: "Meta+Shift+ArrowDown" },
+  { id: "split.left", label: "Split left", group: "Terminal", default: "Meta+Shift+ArrowLeft" },
+  { id: "split.right", label: "Split right", group: "Terminal", default: "Meta+Shift+ArrowRight" },
+  { id: "splitAgent.up", label: "Split up running the default agent", group: "Terminal", default: "Meta+Alt+ArrowUp" },
+  { id: "splitAgent.down", label: "Split down running the default agent", group: "Terminal", default: "Meta+Alt+ArrowDown" },
+  { id: "splitAgent.left", label: "Split left running the default agent", group: "Terminal", default: "Meta+Alt+ArrowLeft" },
+  { id: "splitAgent.right", label: "Split right running the default agent", group: "Terminal", default: "Meta+Alt+ArrowRight" },
+  { id: "pane.up", label: "Focus the pane above", group: "Terminal", default: "Meta+Ctrl+ArrowUp" },
+  { id: "pane.down", label: "Focus the pane below", group: "Terminal", default: "Meta+Ctrl+ArrowDown" },
+  { id: "pane.left", label: "Focus the pane to the left", group: "Terminal", default: "Meta+Ctrl+ArrowLeft" },
+  { id: "pane.right", label: "Focus the pane to the right", group: "Terminal", default: "Meta+Ctrl+ArrowRight" },
+  { id: "pane.zoom", label: "Zoom the focused pane", group: "Terminal", default: "Meta+Z" },
   { id: "find", label: "Find in terminal output", group: "Terminal", default: "Meta+F" },
   { id: "composer", label: "Toggle multiline input", group: "Terminal", default: "Meta+J" },
   { id: "changes", label: "Toggle the changes panel", group: "Terminal", default: "Meta+E" },
@@ -63,11 +78,16 @@ export function resolveKeybinds(overrides: Partial<Keybinds> | undefined): Keybi
 /** The parts of a KeyboardEvent a chord is built from; kept local so this file also compiles for the main process. */
 export interface KeyPress { key: string; code: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }
 
+/** Keys whose character shifts with the layout or the Shift state; ⌘⇧[ has
+ *  to stay "[" rather than becoming "{". */
+const physicalKeys: Record<string, string> = { BracketLeft: "[", BracketRight: "]" };
+
 export function chordOf(event: KeyPress): string | undefined {
   if (["Meta", "Control", "Alt", "Shift"].includes(event.key)) return undefined;
   const modifiers = [event.metaKey && "Meta", event.ctrlKey && "Ctrl", event.altKey && "Alt", event.shiftKey && "Shift"].filter(Boolean);
   const physical = /^(Digit\d|Key[A-Z])$/.exec(event.code)?.[0];
-  const key = physical ? (physical.startsWith("Key") ? physical.slice(3) : physical) : event.key === " " ? "Space" : event.key.length === 1 ? event.key.toUpperCase() : event.key;
+  const key = physical ? (physical.startsWith("Key") ? physical.slice(3) : physical)
+    : physicalKeys[event.code] ?? (event.key === " " ? "Space" : event.key.length === 1 ? event.key.toUpperCase() : event.key);
   return [...modifiers, key].join("+");
 }
 

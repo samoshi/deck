@@ -35,8 +35,34 @@ describe("keybinds", () => {
   });
 
   it("turns arrow chords into electron accelerators", () => {
-    expect(acceleratorOf(defaultKeybinds["workspace.next"])).toBe("CommandOrControl+Alt+Right");
-    expect(formatChord(defaultKeybinds["workspace.prev"])).toBe("⌘⌥←");
+    expect(acceleratorOf(defaultKeybinds["split.right"])).toBe("CommandOrControl+Shift+Right");
+    expect(acceleratorOf(defaultKeybinds["splitAgent.up"])).toBe("CommandOrControl+Alt+Up");
+    expect(acceleratorOf(defaultKeybinds["pane.left"])).toBe("CommandOrControl+Control+Left");
+    expect(formatChord(defaultKeybinds["split.down"])).toBe("⌘⇧↓");
+    expect(formatChord(defaultKeybinds["pane.right"])).toBe("⌘⌃→");
+  });
+
+  it("takes brackets from the physical key so ⌘⇧[ is not ⌘⇧{", () => {
+    const keybinds = resolveKeybinds({});
+    expect(chordOf(press({ key: "{", code: "BracketLeft", metaKey: true, shiftKey: true }))).toBe("Meta+Shift+[");
+    expect(matchKeybind(keybinds, press({ key: "{", code: "BracketLeft", metaKey: true, shiftKey: true }))).toBe("workspace.prev");
+    expect(matchKeybind(keybinds, press({ key: "}", code: "BracketRight", metaKey: true, shiftKey: true }))).toBe("workspace.next");
+    expect(formatChord(defaultKeybinds["workspace.next"])).toBe("⌘⇧]");
+  });
+
+  it("gives every default chord one command, so the arrow families do not collide", () => {
+    const chords = Object.values(defaultKeybinds);
+    expect(new Set(chords).size).toBe(chords.length);
+  });
+
+  it("matches the WezTerm split, focus and zoom chords", () => {
+    const keybinds = resolveKeybinds({});
+    const arrow = (key: string, over: Record<string, boolean>) => press({ key, code: key, metaKey: true, ...over });
+    expect(matchKeybind(keybinds, arrow("ArrowUp", { shiftKey: true }))).toBe("split.up");
+    expect(matchKeybind(keybinds, arrow("ArrowLeft", { shiftKey: true }))).toBe("split.left");
+    expect(matchKeybind(keybinds, arrow("ArrowDown", { altKey: true }))).toBe("splitAgent.down");
+    expect(matchKeybind(keybinds, arrow("ArrowRight", { ctrlKey: true }))).toBe("pane.right");
+    expect(matchKeybind(keybinds, press({ key: "z", code: "KeyZ", metaKey: true }))).toBe("pane.zoom");
   });
   it("turns chords into electron accelerators", () => {
     expect(acceleratorOf("Meta+,")).toBe("CommandOrControl+,");

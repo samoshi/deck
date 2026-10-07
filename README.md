@@ -71,7 +71,7 @@ The queue is fed either by GitHub's review requests or by a column of your board
 
 ### Workspaces
 
-One per client or company. Each workspace has its own tracker connection, GitHub owner, reviews-queue source and folders, and its own terminal tabs and agent sessions (right-click a tab to rename it or move it to another workspace); the board, the review queue, the PR inbox and the sidebar follow whichever is active. Switch from the titlebar, <kbd>⌘⌥→</kbd> / <kbd>⌘⌥←</kbd>, ⌘K (`Workspace: …`) or **Settings → Workspaces**. Everything about Deck itself (theme, hotkey, agents, auto-fix) is shared and lives in **Settings → General**.
+One per client or company. Each workspace has its own tracker connection, GitHub owner, reviews-queue source and folders, and its own terminal tabs and agent sessions (right-click a tab to rename it or move it to another workspace); the board, the review queue, the PR inbox and the sidebar follow whichever is active. Switch from the titlebar, <kbd>⌘⇧]</kbd> / <kbd>⌘⇧[</kbd>, ⌘K (`Workspace: …`) or **Settings → Workspaces**. Everything about Deck itself (theme, hotkey, agents, auto-fix) is shared and lives in **Settings → General**.
 
 ### Layers and groups
 
@@ -135,16 +135,19 @@ Install and authenticate [`claude`](https://docs.anthropic.com/en/docs/claude-co
 | <kbd>⌘1</kbd>–<kbd>⌘9</kbd> | Switch terminal |
 | <kbd>⌘B</kbd> | Toggle sidebar |
 | <kbd>⌘⌥1</kbd> <kbd>⌘⌥2</kbd> <kbd>⌘⌥3</kbd> <kbd>⌘⌥4</kbd> | Terminal / Board / Agent / Reviews |
-| <kbd>⌘⌥←</kbd> / <kbd>⌘⌥→</kbd> | Previous / next workspace |
-| <kbd>⌘⌥↑</kbd> / <kbd>⌘⌥↓</kbd> | Previous / next layer |
-| <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> | Split right / down |
+| <kbd>⌘⇧[</kbd> / <kbd>⌘⇧]</kbd> | Previous / next workspace |
+| <kbd>⌘⌥⇧↑</kbd> / <kbd>⌘⌥⇧↓</kbd> | Previous / next layer |
+| <kbd>⌘⇧↑</kbd> <kbd>⌘⇧↓</kbd> <kbd>⌘⇧←</kbd> <kbd>⌘⇧→</kbd> | Split that way, into a shell |
+| <kbd>⌘⌥↑</kbd> <kbd>⌘⌥↓</kbd> <kbd>⌘⌥←</kbd> <kbd>⌘⌥→</kbd> | Split that way, running the default agent |
+| <kbd>⌃⌘↑</kbd> <kbd>⌃⌘↓</kbd> <kbd>⌃⌘←</kbd> <kbd>⌃⌘→</kbd> | Focus the pane that way |
+| <kbd>⌘Z</kbd> | Zoom the focused pane |
 | <kbd>⌘F</kbd> | Find in terminal |
 | <kbd>⌘J</kbd> | Toggle multiline input |
 | <kbd>⌘⇧Enter</kbd> | Toggle Zen view |
 | <kbd>⌘⇧P</kbd> | Toggle Presentation view |
 | <kbd>Esc</kbd> | Exit Zen / Presentation from the terminal |
 
-Drag pane dividers to resize; arrow keys resize a focused divider and double-click resets it. Presentation controls adjust text size and switch sessions, and exiting restores your split layout.
+Splits follow WezTerm: ⌘⇧ and an arrow opens a shell that way, ⌘⌥ and an arrow opens the default agent, ⌃⌘ and an arrow moves focus, and ⌘Z zooms the focused pane and back. Drag pane dividers to resize; arrow keys resize a focused divider and double-click resets it. Every pane but the focused one is dimmed. Presentation controls adjust text size and switch sessions, and exiting restores your split layout.
 
 ## Development
 

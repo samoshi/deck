@@ -1,4 +1,8 @@
-export type TerminalAction = "find" | "clear" | "export" | "files" | "changes" | "split-right" | "split-down" | "focus" | "composer";
+import type { PaneDirection } from "./layout.js";
+
+export type TerminalAction =
+  | "find" | "clear" | "export" | "files" | "changes" | "focus" | "composer" | "pane-zoom"
+  | `split-${PaneDirection}`;
 const EVENT = "deck:terminal-action";
 export function terminalAction(action: TerminalAction): void {
   window.dispatchEvent(new CustomEvent(EVENT, { detail: action }));
