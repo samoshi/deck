@@ -28,6 +28,16 @@ Terminal tokens: `background`, `foreground`, `cursor`, `selectionBackground`, th
 
 Custom theme selection ids use `custom:<id>`; plugin theme ids use `<plugin-id>:<theme-id>`.
 
+### Setting the theme from outside Deck
+
+Deck mirrors the selected theme to `active-theme`, a one-line file in the user-data folder beside `themes/` and `plugins/`, and applies what something else writes there. A tool that already themes your terminal, your editor or your cursor can theme Deck the same way without a plugin, since plugin code runs in a worker with no filesystem access.
+
+```sh
+echo midnight > ~/Library/Application\ Support/deck/active-theme
+```
+
+The file holds one name: a full selection id (`midnight`, `custom:ocean`, `my-tools:violet`), the unqualified id of a custom or plugin theme (`ocean`), or a display name (`Rose Pine`). A name that matches nothing, or matches more than one theme, leaves the current theme alone. Deck's own writes do not come back as a change.
+
 ## Create a plugin
 
 Copy `examples/plugins/workspace-kit` and install your copy using **Settings → Plugins → Install plugin…**. Deck references the folder in place so edits reload automatically. Alternatively place a plugin folder inside **Open folder**. Enable or disable plugins in Settings.

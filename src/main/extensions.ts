@@ -9,10 +9,22 @@ import { kvGet, kvSet } from "./db.js";
 interface InstalledPlugin { path: string; enabled: boolean }
 let watcher: FSWatcher | undefined;
 let timer: ReturnType<typeof setTimeout> | undefined;
+let themeTimer: ReturnType<typeof setTimeout> | undefined;
 const listeners = new Set<() => void>();
+const themeListeners = new Set<(id: string) => void>();
 export function onExtensionsChanged(listener: () => void): () => void { listeners.add(listener); return () => listeners.delete(listener); }
+export function onActiveThemeChanged(listener: (id: string) => void): () => void { themeListeners.add(listener); return () => themeListeners.delete(listener); }
 function changed(): void { for (const listener of listeners) listener(); }
 const folders = () => ({ themesDirectory: path.join(app.getPath("userData"), "themes"), pluginsDirectory: path.join(app.getPath("userData"), "plugins") });
+
+// Deck mirrors the selected theme to a plain file in its user-data folder, and
+// follows the file when something else writes it. That lets whatever already
+// themes a terminal, an editor or a cursor theme deck too, without a plugin:
+// plugin code runs in a worker with no filesystem access.
+const activeThemeFile = () => path.join(app.getPath("userData"), "active-theme");
+// Both directions touch one file, so remember what deck itself put there and
+// let the watcher ignore that echo instead of bouncing it back as a change.
+let mirrored: string | undefined;
 const installed = () => kvGet<InstalledPlugin[]>("plugins") ?? [];
 
 function readJson(file: string): unknown {
@@ -77,14 +89,51 @@ export function startExtensions(): void {
   const directories = folders();
   for (const folder of Object.values(directories)) fs.mkdirSync(folder, { recursive: true });
   void watcher?.close();
-  watcher = watch([...Object.values(directories), ...installed().map((plugin) => plugin.path)], {
+  watcher = watch([...Object.values(directories), activeThemeFile(), ...installed().map((plugin) => plugin.path)], {
     ignoreInitial: true, depth: 5, ignored: /(?:^|[/\\])(?:node_modules|\.git)(?:[/\\]|$)/,
     awaitWriteFinish: { stabilityThreshold: 250, pollInterval: 100 },
   });
-  watcher.on("all", () => { clearTimeout(timer); timer = setTimeout(changed, 150); });
+  watcher.on("all", (_event, file) => {
+    if (path.resolve(file) === activeThemeFile()) { clearTimeout(themeTimer); themeTimer = setTimeout(readActiveTheme, 150); return; }
+    clearTimeout(timer); timer = setTimeout(changed, 150);
+  });
   watcher.on("error", (error) => console.warn("Extension watcher:", error));
 }
-export function stopExtensions(): void { clearTimeout(timer); void watcher?.close(); watcher = undefined; }
+export function stopExtensions(): void { clearTimeout(timer); clearTimeout(themeTimer); void watcher?.close(); watcher = undefined; }
+
+/** What an external writer may put in the file: a full theme id, the
+ *  unqualified id a plugin or custom theme contributes, or a display name.
+ *  An ambiguous or unknown name leaves the current theme alone. */
+export function resolveThemeId(value: string): string | undefined {
+  const wanted = value.split("\n")[0].trim();
+  if (!wanted) return undefined;
+  const themes = extensionCatalog().themes;
+  const exact = themes.find((theme) => theme.id === wanted);
+  if (exact) return exact.id;
+  const unqualified = (id: string): string => id.slice(id.indexOf(":") + 1);
+  for (const candidates of [
+    themes.filter((theme) => unqualified(theme.id) === wanted),
+    themes.filter((theme) => theme.name.toLowerCase() === wanted.toLowerCase()),
+  ]) if (candidates.length === 1) return candidates[0].id;
+  return undefined;
+}
+
+/** Deck's own selection, written out for whatever else themes this machine. */
+export function writeActiveTheme(id: string): void {
+  if (mirrored === id) return;
+  mirrored = id;
+  try { fs.writeFileSync(activeThemeFile(), id + "\n"); }
+  catch (error) { console.warn("Active theme file:", error); }
+}
+
+function readActiveTheme(): void {
+  let value: string;
+  try { value = fs.readFileSync(activeThemeFile(), "utf8"); } catch { return; }
+  const id = resolveThemeId(value);
+  if (!id || id === mirrored) return;
+  mirrored = id;
+  for (const listener of themeListeners) listener(id);
+}
 
 export function saveTheme(value: unknown): DeckTheme {
   const theme = parseTheme(value);

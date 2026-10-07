@@ -4,6 +4,8 @@ import {
   startExtensions,
   stopExtensions,
   onExtensionsChanged,
+  onActiveThemeChanged,
+  writeActiveTheme,
   extensionCatalog,
   saveTheme,
   importTheme,
@@ -353,6 +355,11 @@ app.whenReady().then(async () => {
   startIndexer();
   startExtensions();
   onExtensionsChanged(() => broadcast("extensions:changed"));
+  writeActiveTheme(getSettings().theme);
+  onActiveThemeChanged((theme) => {
+    if (getSettings().theme === theme) return;
+    broadcast("settings:changed", updateSettings({ theme }));
+  });
   ipcMain.handle("extensions:get", () => extensionCatalog());
   ipcMain.handle("extensions:folder", (_e, kind: "themes" | "plugins") =>
     openExtensionFolder(kind),
@@ -586,6 +593,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("settings:update", (_e, patch: Partial<DeckSettings>) => {
     const next = updateSettings(patch);
     broadcast("settings:changed", next);
+    if ("theme" in patch) writeActiveTheme(next.theme);
     // A workspace switch shows the new workspace's last board and inbox at
     // once, then fetches fresh ones.
     if ("activeWorkspace" in patch || "workspaces" in patch) {
