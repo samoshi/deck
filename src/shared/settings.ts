@@ -124,6 +124,14 @@ export interface ExperimentSettings {
   sessionSweep: boolean;
 }
 
+/** What happens to the tabs deck remembered when it starts again.
+ *  - "active": the layer you were last in comes back running; every other
+ *    layer's tabs wait paused until you resume them.
+ *  - "all": every layer's tabs come back running.
+ *  - "paused": nothing starts on its own; every tab waits paused.
+ *  - "off": deck forgets the tabs of a session once it quits. */
+export type RestoreTabs = "active" | "all" | "paused" | "off";
+
 /** The page deck opens on. */
 export type DefaultView = "terminal" | "board" | "agent" | "reviews";
 
@@ -134,6 +142,28 @@ export const askModels = [
   { id: "claude-fable-5-1", label: "Fable 5.1" },
   { id: "haiku", label: "Haiku" },
 ] as const;
+
+/** A layer: one exclusive set of the workspace's terminal tabs. Where a
+ *  workspace separates clients, layers separate what you are doing for one;
+ *  switching shows that layer's tabs and hides the rest. */
+export interface TabLayer {
+  id: string;
+  name: string;
+  /** Accent for the layer's pill; a theme colour name, empty for the default. */
+  color?: string;
+}
+
+/** A named, collapsible run of tabs inside one layer. Unlike a layer, a group
+ *  hides nothing: collapsing it folds its tabs into a header carrying their
+ *  count, and they stay reachable by number and by the next/previous chords. */
+export interface TabGroup {
+  id: string;
+  /** Layer the group sits in; a group never spans two. */
+  layer: string;
+  name: string;
+  color?: string;
+  collapsed?: boolean;
+}
 
 /** The settings that differ per client or company: which tracker and GitHub
  *  owner deck talks to, where the code lives. Everything else in DeckSettings
@@ -151,9 +181,15 @@ export interface WorkspaceSettings {
   repoRoots: string[];
   /** Folder new terminals fall back to. Supports ~. */
   defaultCwd: string;
+  /** The workspace's layers, in the order the sidebar lists them. Never empty. */
+  layers: TabLayer[];
+  /** Id of the layer whose tabs are on screen. */
+  activeLayer: string;
+  /** Tab groups across every layer, in sidebar order. */
+  groups: TabGroup[];
 }
 
-export const workspaceKeys = ["reviewSource", "board", "jira", "linear", "githubProjects", "github", "repoRoots", "defaultCwd"] as const satisfies readonly (keyof WorkspaceSettings)[];
+export const workspaceKeys = ["reviewSource", "board", "jira", "linear", "githubProjects", "github", "repoRoots", "defaultCwd", "layers", "activeLayer", "groups"] as const satisfies readonly (keyof WorkspaceSettings)[];
 
 export interface Workspace extends WorkspaceSettings {
   id: string;
@@ -172,6 +208,34 @@ export function workspaceOf(stamp: string | null | undefined, workspaces: Pick<W
   return (workspaces.find((w) => w.id === legacyWorkspaceId) ?? workspaces[0]).id;
 }
 
+/** One remembered tab: enough to show it paused and to bring it back exactly
+ *  where it was. Written when the tab list changes, read on the next start. */
+export interface RememberedTab {
+  /** The terminal's id at the time, kept as a stable key for the paused row. */
+  id: string;
+  layer: string;
+  group?: string;
+  cwd?: string;
+  agent?: string;
+  /** Agent session the tab was running, resumed when it is unpaused. */
+  sessionId?: string;
+  /** What the sidebar called it, for the paused row's label. */
+  title: string;
+  /** A name the user typed, reapplied to the terminal that replaces it. */
+  customTitle?: string;
+}
+
+/** Id of the layer a terminal belongs to, given the id it was stamped with.
+ *  Unstamped terminals (opened before layers existed) and ones stamped with a
+ *  layer since deleted fall to the workspace's first layer. */
+export function layerOf(stamp: string | null | undefined, layers: Pick<TabLayer, "id">[]): string {
+  return stamp && layers.some((layer) => layer.id === stamp) ? stamp : layers[0].id;
+}
+
+/** The default layer every workspace starts with, and the one a deleted
+ *  layer's tabs fall back to when it is the only one left. */
+export const defaultLayerId = "main";
+
 export interface DeckSettings extends WorkspaceSettings {
   /** Every workspace, in the order the switcher lists them. Never empty. */
   workspaces: Workspace[];
@@ -184,6 +248,8 @@ export interface DeckSettings extends WorkspaceSettings {
   /** Claude model alias or id used by deck's own orchestrator turns. */
   askModel: string;
   defaultView: DefaultView;
+  /** Which remembered tabs come back running when deck starts. */
+  restoreTabs: RestoreTabs;
   autoFix: AutoFixSettings;
   agentSharing: AgentSharingSettings;
   windowMode: WindowMode;
@@ -225,6 +291,9 @@ export const defaultWorkspaceSettings: WorkspaceSettings = {
   github: { owner: "", repos: [] },
   repoRoots: [],
   defaultCwd: "~",
+  layers: [{ id: "main", name: "Main" }],
+  activeLayer: "main",
+  groups: [],
 };
 
 export const defaultSettings: DeckSettings = {
@@ -235,6 +304,7 @@ export const defaultSettings: DeckSettings = {
   defaultAgent: "claude",
   askModel: "sonnet",
   defaultView: "terminal",
+  restoreTabs: "active",
   autoFix: { enabled: false, ci: true, conflicts: true, push: "review" },
   agentSharing: { mode: "all", projects: [], transcripts: true, board: true, pullRequests: true },
   windowMode: "shared",

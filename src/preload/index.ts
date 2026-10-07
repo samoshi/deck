@@ -27,7 +27,7 @@ import type { AskEvent, AskResult } from "../main/agentTurn.js";
 import type { ReviewDraft, ReviewPr } from "../main/review.js";
 import type { PrInbox } from "../main/prInbox.js";
 import type { AgentSession } from "../main/sessions.js";
-import type { DeckSettings } from "../shared/settings.js";
+import type { DeckSettings, RememberedTab } from "../shared/settings.js";
 
 const api = {
   /** A menu item the user picked, as the command id the keybinds use. */
@@ -254,6 +254,12 @@ const api = {
       ipcRenderer.send("term:resize", id, cols, rows),
     kill: (id: string): void => ipcRenderer.send("term:kill", id),
     moveToWorkspace: (id: string, workspace: string): void => ipcRenderer.send("term:workspace", id, workspace),
+    /** Moves a terminal between layers and groups. A group of null ungroups it. */
+    place: (id: string, placement: { layer?: string; group?: string | null }): void => ipcRenderer.send("term:place", id, placement),
+    /** The tabs this workspace had when deck last ran. */
+    remembered: (): Promise<RememberedTab[]> => ipcRenderer.invoke("term:remembered"),
+    /** Writes down the workspace's tabs, paused ones included. */
+    remember: (tabs: RememberedTab[]): void => ipcRenderer.send("term:remember", tabs),
     /** Absolute path of a file dragged in from Finder; only the preload may read it. */
     pathForFile: (file: File): string => webUtils.getPathForFile(file),
     onData: (cb: (id: string, data: string, sequence: number) => void): (() => void) => {

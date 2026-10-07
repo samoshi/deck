@@ -7,6 +7,7 @@ export type KeybindCommand =
   | "view.terminal" | "view.board" | "view.agent" | "view.reviews"
   | "zen" | "presentation"
   | "workspace.next" | "workspace.prev"
+  | "layer.next" | "layer.prev"
   | "tab.new" | "tab.newAgent" | "tab.close" | "tab.reopen" | "tab.next" | "tab.prev"
   | "split.right" | "split.down" | "find" | "composer" | "changes"
   | "font.increase" | "font.decrease" | "font.reset";
@@ -33,6 +34,8 @@ export const keybindInfos: KeybindInfo[] = [
   { id: "presentation", label: "Toggle Presentation view", group: "Workbench", default: "Meta+Shift+P" },
   { id: "workspace.next", label: "Next workspace", group: "Workbench", default: "Meta+Alt+ArrowRight" },
   { id: "workspace.prev", label: "Previous workspace", group: "Workbench", default: "Meta+Alt+ArrowLeft" },
+  { id: "layer.next", label: "Next layer", group: "Workbench", default: "Meta+Alt+ArrowDown" },
+  { id: "layer.prev", label: "Previous layer", group: "Workbench", default: "Meta+Alt+ArrowUp" },
   { id: "tab.new", label: "New terminal tab", group: "Terminal", default: "Meta+T" },
   { id: "tab.newAgent", label: "New tab running the default agent", group: "Terminal", default: "Meta+Shift+N" },
   { id: "tab.close", label: "Close the active tab", group: "Terminal", default: "Meta+W" },

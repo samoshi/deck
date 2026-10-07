@@ -12,15 +12,19 @@ import { Icon } from "../board/icons.js";
 import { useSessionSuggestions } from "./useSessionSuggestions.js";
 import { useReviewQueue } from "../lib/reviews.js";
 import { useSettings } from "../lib/useSettings.js";
+import { LayerStrip, colorStyle, layerColors } from "./LayerStrip.js";
+import { layerOf, type TabGroup } from "../../../shared/settings.js";
 import { useAttentionCount } from "../agents/attention.js";
 import { useTips } from "../tips/TipsProvider.js";
 import type { View } from "../App.js";
 
-function SessionRow({ tab, session, index, onOpen }: { tab: TermTab; session?: AgentSession; index: number; onOpen: () => void }) {
-  const { activeId, requestCloseTab, renameTab, moveTab, moveTabToWorkspace } = useTabs();
+function SessionRow({ tab, session, index, grouped, onNewGroup, onOpen }: { tab: TermTab; session?: AgentSession; index: number; grouped?: boolean; onNewGroup: (termId: string) => void; onOpen: () => void }) {
+  const { activeId, requestCloseTab, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup } = useTabs();
   const { report } = useTips();
   const settings = useSettings();
   const otherWorkspaces = settings?.workspaces.filter((workspace) => workspace.id !== settings.activeWorkspace) ?? [];
+  const otherLayers = (settings?.layers ?? []).filter((layer) => layer.id !== settings?.activeLayer);
+  const groups = (settings?.groups ?? []).filter((group) => group.layer === settings?.activeLayer);
   const [renaming, setRenaming] = useState(false);
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -43,32 +47,42 @@ function SessionRow({ tab, session, index, onOpen }: { tab: TermTab; session?: A
   return <div draggable={!renaming} onDragStart={(event) => { event.dataTransfer.setData("text/deck-tab", tab.termId); event.dataTransfer.effectAllowed = "move"; }}
     onDragOver={(event) => { if (event.dataTransfer.types.includes("text/deck-tab")) { event.preventDefault(); setDropTarget(true); } }}
     onDragLeave={() => setDropTarget(false)}
-    onDrop={(event) => { event.preventDefault(); setDropTarget(false); const id = event.dataTransfer.getData("text/deck-tab"); if (id && id !== tab.termId) moveTab(id, index); }}
-    className={`relative border-b px-2 py-2 ${dropTarget ? "border-t border-t-orange" : "border-edge/80"}`}>
-    <div role="button" tabIndex={0} aria-label={`${title}${agent ? ` (${agentLabels[agent]})` : ""}`} aria-current={active ? "page" : undefined}
+    onDrop={(event) => { event.preventDefault(); setDropTarget(false); const id = event.dataTransfer.getData("text/deck-tab"); if (id && id !== tab.termId) { moveTab(id, tab.termId); setTabGroup(id, tab.groupId ?? null); } }}
+    className={`relative border-b px-2 py-2 ${grouped ? "pl-4" : ""} ${dropTarget ? "border-t border-t-orange" : "border-edge/80"}`}>
+    <div role="button" tabIndex={0} aria-label={`${title}${agent ? ` (${agentLabels[agent]})` : ""}${tab.paused ? " (paused)" : ""}`} aria-current={active ? "page" : undefined}
       onClick={() => { report({ action: "tab-click" }); onOpen(); }} onKeyDown={(event) => { if (event.target === event.currentTarget && event.key === "Enter") onOpen(); }}
       onDoubleClick={() => { setName(title); setRenaming(true); }}
       onContextMenu={(event) => { event.preventDefault(); setMenu(true); }}
-      className={`group flex min-h-[56px] cursor-pointer items-center gap-2.5 rounded-md border px-2.5 py-2 outline-none focus-visible:border-mut ${active ? "border-edge3 bg-card2" : "border-transparent hover:bg-card"}`}>
-      <SessionIcon agent={agent} status={session?.status} color={oscColor} />
+      className={`group relative flex min-h-[56px] cursor-pointer items-center gap-2.5 rounded-md border px-2.5 py-2 outline-none focus-visible:border-mut ${tab.paused ? "border-dashed border-edge2 hover:border-edge3" : active ? "border-edge3 bg-card2" : "border-transparent hover:bg-card"}`}>
+      <span className={tab.paused ? "opacity-40" : undefined}><SessionIcon agent={agent} status={session?.status} color={oscColor} /></span>
       <div className="min-w-0 flex-1">
         {renaming ? <input aria-label="Session name" autoFocus value={name} onChange={(event) => setName(event.target.value)}
           onClick={(event) => event.stopPropagation()} onBlur={() => { renameTab(tab.termId, name); setRenaming(false); }}
           onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Enter") { renameTab(tab.termId, name); setRenaming(false); } if (event.key === "Escape") setRenaming(false); }}
           className="w-full rounded bg-bg px-1 text-xs text-ink outline-none" /> :
-          <div className="truncate text-[12px] text-soft" title={title}>{title}</div>}
+          <div className={`truncate text-[12px] ${tab.paused ? "text-mut" : "text-soft"}`} title={title}>{title}</div>}
         <div className="mt-0.5 flex items-center gap-1 truncate text-[10px] text-mut">
           {git ? <><Icon name="branch" size={10} /><span className="truncate">{git.branch}</span></> : <span className="truncate">{shortPath(cwd)}</span>}
           {agent && <span className="ml-auto shrink-0 text-dim">{agentLabels[agent]}</span>}
         </div>
         {waiting && tone && <div className={`mt-1 text-[10px] ${tone.text}`}>{statusLabels[session.status]}</div>}
       </div>
-      <span className="self-start pt-0.5 text-[10px] text-dim group-hover:hidden">{index < 9 ? `⌘${index + 1}` : ""}</span>
+      <span className="self-start pt-0.5 text-[10px] text-dim group-hover:hidden">{tab.paused ? "paused" : index < 9 ? `⌘${index + 1}` : ""}</span>
+      {tab.paused && <div aria-hidden className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-bg/60 opacity-0 backdrop-blur-[1px] transition-opacity duration-150 group-hover:opacity-100">
+        <span className="flex items-center gap-1.5 rounded-full border border-edge3 bg-overlay px-3 py-1 text-[11px] text-soft shadow-lg"><Icon name="play" size={10} />Resume</span>
+      </div>}
       <button aria-label={`Close ${title}`} title="Close session" className="hidden self-start text-mut hover:text-ink group-hover:block"
         onClick={(event) => { event.stopPropagation(); report({ action: "close-tab-button" }); requestCloseTab(tab.termId); }}><Icon name="x" size={11} /></button>
     </div>
     {menu && <div ref={menuRef} role="menu" aria-label={`${title} options`} className="absolute left-3 right-3 z-50 mt-1 rounded-lg border border-edge3 bg-overlay p-1 shadow-xl">
       <button className="menu-item" onClick={() => { setMenu(false); setName(title); setRenaming(true); }}>Rename</button>
+      {(groups.length > 0 || tab.groupId) && <div className="px-2 pb-0.5 pt-1.5 text-[10px] tracking-widest text-dim">GROUP</div>}
+      {groups.filter((group) => group.id !== tab.groupId).map((group) => <button key={group.id} className="menu-item" onClick={() => { setMenu(false); setTabGroup(tab.termId, group.id); }}>Add to {group.name}</button>)}
+      {tab.groupId && <button className="menu-item" onClick={() => { setMenu(false); setTabGroup(tab.termId, null); }}>Remove from group</button>}
+      <button className="menu-item" onClick={() => { setMenu(false); onNewGroup(tab.termId); }}>New group with this tab</button>
+      {otherLayers.length > 0 && <div className="px-2 pb-0.5 pt-1.5 text-[10px] tracking-widest text-dim">LAYER</div>}
+      {otherLayers.map((layer) => <button key={layer.id} className="menu-item" onClick={() => { setMenu(false); moveTabToLayer(tab.termId, layer.id); }}>Move to {layer.name}</button>)}
+      {otherWorkspaces.length > 0 && <div className="px-2 pb-0.5 pt-1.5 text-[10px] tracking-widest text-dim">WORKSPACE</div>}
       {otherWorkspaces.map((workspace) => <button key={workspace.id} className="menu-item" onClick={() => { setMenu(false); moveTabToWorkspace(tab.termId, workspace.id); }}>Move to {workspace.name}</button>)}
       <div className="my-1 border-t border-edge2" />
       <button className="menu-item" onClick={() => { setMenu(false); requestCloseTab(tab.termId); }}>Close</button>
@@ -76,10 +90,66 @@ function SessionRow({ tab, session, index, onOpen }: { tab: TermTab; session?: A
   </div>;
 }
 
+/** A group's header: its name, how many tabs it holds and, when collapsed, how
+ *  many of them want something. Collapsing hides the rows, never the tabs:
+ *  they keep running and the number chords still reach them. */
+function GroupHeader({ group, count, waiting, onToggle, onChange, onDelete, onDropTab }: {
+  group: TabGroup;
+  count: number;
+  /** Tabs inside whose agent is waiting on the user. */
+  waiting: number;
+  onToggle: () => void;
+  onChange: (group: TabGroup) => void;
+  onDelete: () => void;
+  onDropTab: (termId: string) => void;
+}) {
+  const [menu, setMenu] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [name, setName] = useState(group.name);
+  const [over, setOver] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const dismiss = (event: MouseEvent) => { if (!menuRef.current?.contains(event.target as Node)) setMenu(false); };
+    window.addEventListener("mousedown", dismiss);
+    return () => window.removeEventListener("mousedown", dismiss);
+  }, [menu]);
+  const rename = () => { onChange({ ...group, name: name.trim() || group.name }); setRenaming(false); };
+  return <div className="relative"
+    onDragOver={(event) => { if (event.dataTransfer.types.includes("text/deck-tab")) { event.preventDefault(); setOver(true); } }}
+    onDragLeave={() => setOver(false)}
+    onDrop={(event) => { event.preventDefault(); setOver(false); const termId = event.dataTransfer.getData("text/deck-tab"); if (termId) onDropTab(termId); }}>
+    {renaming
+      ? <input aria-label="Group name" autoFocus value={name} onChange={(event) => setName(event.target.value)} onBlur={rename}
+          onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Enter") rename(); if (event.key === "Escape") setRenaming(false); }}
+          className="mx-2 my-1 w-[calc(100%-1rem)] rounded bg-bg px-1.5 py-1 text-[11px] text-ink outline-none" />
+      : <button aria-expanded={!group.collapsed} onClick={onToggle} onDoubleClick={() => { setName(group.name); setRenaming(true); }}
+          onContextMenu={(event) => { event.preventDefault(); setMenu(true); }}
+          className={`flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-[11px] ${over ? "bg-card2" : "hover:bg-card"}`}>
+          <span aria-hidden className="w-2 text-dim">{group.collapsed ? "\u25b8" : "\u25be"}</span>
+          {group.color && <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full" style={colorStyle(group.color)} />}
+          <span className="min-w-0 flex-1 truncate text-soft">{group.name}</span>
+          {waiting > 0 && group.collapsed && <span aria-label={`${waiting} waiting`} className="rounded-full bg-orange/20 px-1.5 text-[10px] text-orange">{waiting}</span>}
+          <span className="text-dim">{count}</span>
+        </button>}
+    {menu && <div ref={menuRef} role="menu" aria-label={`${group.name} options`} className="absolute left-3 right-3 z-50 mt-1 rounded-lg border border-edge3 bg-overlay p-1 shadow-xl">
+      <button className="menu-item" onClick={() => { setMenu(false); setName(group.name); setRenaming(true); }}>Rename</button>
+      <div className="flex gap-1 px-2 py-1.5">
+        <button aria-label="No colour" title="No colour" onClick={() => { setMenu(false); onChange({ ...group, color: undefined }); }} className="h-4 w-4 rounded-full border border-edge3" />
+        {layerColors.map((color) => <button key={color} aria-label={color} title={color} style={colorStyle(color)}
+          onClick={() => { setMenu(false); onChange({ ...group, color }); }}
+          className={`h-4 w-4 rounded-full ${group.color === color ? "ring-2 ring-soft" : ""}`} />)}
+      </div>
+      <div className="my-1 border-t border-edge2" />
+      <button className="menu-item" onClick={() => { setMenu(false); onDelete(); }}>Ungroup tabs</button>
+    </div>}
+  </div>;
+}
+
 const footerViews = ["terminal", "board", "agent", "reviews"] as const;
 
 export function Sidebar({ view, onView }: { view: View; onView: (view: View) => void }) {
-  const { tabs, newTab, focusTab, closeTab } = useTabs();
+  const { tabs, allTabs, newTab, focusTab, closeTab, setTabGroup, moveTabToLayer, resumeTab, pausedByLayer } = useTabs();
   const [archive, setArchive] = useState(false);
   const [worktreesOpen, setWorktreesOpen] = useState(false);
   const [sweepOpen, setSweepOpen] = useState(false);
@@ -164,6 +234,64 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
     try { await newTab({ agent }); onView("terminal"); }
     catch (error) { setError(String(error)); }
   };
+  const layers = settings?.layers ?? [];
+  const activeLayer = settings?.activeLayer ?? "";
+  const layerGroups = (settings?.groups ?? []).filter((group) => group.layer === activeLayer);
+  const groupById = new Map(layerGroups.map((group) => [group.id, group]));
+  const layerCounts = allTabs.reduce<Record<string, number>>((counts, tab) => {
+    if (!layers.length) return counts;
+    const id = layerOf(tab.layerId, layers);
+    counts[id] = (counts[id] ?? 0) + 1;
+    return counts;
+  }, {});
+  // Groups of other layers are untouched by an edit to this layer's.
+  const saveGroups = (next: TabGroup[]) => void window.deck.updateSettings({
+    groups: [...(settings?.groups ?? []).filter((group) => group.layer !== activeLayer), ...next],
+  });
+  const newGroup = (termId?: string) => {
+    const group: TabGroup = { id: `group-${Date.now().toString(36)}`, layer: activeLayer, name: `Group ${layerGroups.length + 1}` };
+    saveGroups([...layerGroups, group]);
+    if (termId) setTabGroup(termId, group.id);
+  };
+  const ungroup = (group: TabGroup) => {
+    allTabs.filter((tab) => tab.groupId === group.id).forEach((tab) => setTabGroup(tab.termId, null));
+    saveGroups(layerGroups.filter((other) => other.id !== group.id));
+  };
+  const waitingIn = (members: TermTab[]) =>
+    members.filter((tab) => ["needs_input", "needs_review"].includes(byTerm.get(tab.termId)?.status ?? "")).length;
+
+  const pausedHere = visibleTabs.filter((tab) => tab.paused);
+  const pausedAgents = pausedHere.filter((tab) => tab.agent).length;
+  const pausedSummary = [
+    pausedAgents > 0 ? `${pausedAgents} agent session${pausedAgents > 1 ? "s" : ""}` : "",
+    pausedHere.length - pausedAgents > 0 ? `${pausedHere.length - pausedAgents} shell${pausedHere.length - pausedAgents > 1 ? "s" : ""}` : "",
+  ].filter(Boolean).join(" · ");
+
+  // Tabs render in their own order, and a group opens at its first member so a
+  // tab never jumps across the sidebar just for being grouped.
+  const rows: React.JSX.Element[] = [];
+  const done = new Set<string>();
+  const row = (tab: TermTab, grouped?: boolean) => <SessionRow key={tab.termId} tab={tab} session={byTerm.get(tab.termId)}
+    index={tabs.indexOf(tab)} grouped={grouped} onNewGroup={newGroup} onOpen={() => { focusTab(tab.termId); onView("terminal"); }} />;
+  const groupRows = (group: TabGroup, members: TermTab[]) => {
+    rows.push(<GroupHeader key={group.id} group={group} count={members.length} waiting={waitingIn(members)}
+      onToggle={() => saveGroups(layerGroups.map((other) => other.id === group.id ? { ...other, collapsed: !other.collapsed } : other))}
+      onChange={(next) => saveGroups(layerGroups.map((other) => other.id === group.id ? next : other))}
+      onDelete={() => ungroup(group)}
+      onDropTab={(termId) => setTabGroup(termId, group.id)} />);
+    if (!group.collapsed) for (const member of members) rows.push(row(member, true));
+  };
+  for (const tab of visibleTabs) {
+    if (done.has(tab.termId)) continue;
+    const group = tab.groupId ? groupById.get(tab.groupId) : undefined;
+    if (!group) { done.add(tab.termId); rows.push(row(tab)); continue; }
+    const members = visibleTabs.filter((other) => other.groupId === group.id);
+    members.forEach((member) => done.add(member.termId));
+    groupRows(group, members);
+  }
+  // An emptied group keeps its header, so it is still a place to drop a tab.
+  for (const group of layerGroups) if (!visibleTabs.some((tab) => tab.groupId === group.id)) groupRows(group, []);
+
   return <aside aria-label="Sessions" style={{ width }} onWheel={onWheel} className="relative flex shrink-0 select-none flex-col border-r border-edge bg-panel font-sans">
     <div role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabIndex={0}
       onDoubleClick={() => { setWidth(252); localStorage.setItem("deck.sidebar.width", "252"); }}
@@ -181,6 +309,7 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
       {menu && <div className="absolute right-2 top-9 z-50 w-48 rounded-lg border border-edge3 bg-overlay p-1 shadow-xl">
         <button onClick={() => void launch()} className="menu-item"><Icon name="terminal" />New terminal<span className="ml-auto text-dim">⌘T</span></button>
         {(["claude", "codex"] as const).map((agent) => <button key={agent} onClick={() => void launch(agent)} className="menu-item"><Icon name="sparkle" />New {agentLabels[agent]}</button>)}
+        <button onClick={() => { setMenu(false); newGroup(); }} className="menu-item"><Icon name="layers" />New group</button>
         <div className="my-1 border-t border-edge2" />
         <button disabled={!tabs.length} onClick={closeAllTabs} className="menu-item disabled:opacity-40"><Icon name="x" />Close all tabs</button>
         <button onClick={() => { setMenu(false); setArchive(true); }} className="menu-item"><Icon name="terminal" />Session archive</button>
@@ -188,8 +317,21 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
         <button onClick={() => { setMenu(false); onView("settings"); }} className="menu-item"><Icon name="cog" />Settings</button>
       </div>}
     </div>
+    {layers.length > 0 && <LayerStrip layers={layers} activeLayer={activeLayer} counts={layerCounts}
+      onSwitch={(id) => { void window.deck.updateSettings({ activeLayer: id }); onView("terminal"); }}
+      paused={pausedByLayer}
+      onDropTab={(termId, layer) => moveTabToLayer(termId, layer)}
+      onChange={(next, active) => void window.deck.updateSettings({ layers: next, activeLayer: active })} />}
     <div className="min-h-0 flex-1 overflow-y-auto">
-      {visibleTabs.map((tab) => <SessionRow key={tab.termId} tab={tab} session={byTerm.get(tab.termId)} index={tabs.indexOf(tab)} onOpen={() => { focusTab(tab.termId); onView("terminal"); }} />)}
+      {pausedHere.length > 0 && !searching && <section aria-label="Paused tabs" className="mx-3 mb-1 mt-3 rounded-lg border border-dashed border-edge2 bg-card/40 p-3">
+        <div className="text-[11px] font-medium text-mut">{pausedHere.length} paused from last time</div>
+        <div className="mt-1 text-[10px] text-dim">{pausedSummary}</div>
+        <button onClick={() => void pausedHere.reduce((queue, tab) => queue.then(() => resumeTab(tab.termId)), Promise.resolve())}
+          className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-md border border-edge2 py-1.5 text-[11px] text-soft hover:border-edge3 hover:bg-card2">
+          <Icon name="play" size={10} />Resume all
+        </button>
+      </section>}
+      {rows}
       {!searching && lastSession && <section aria-label="Session suggestions" className="mx-3 my-3 rounded-lg border border-edge2 bg-card/50 p-3">
         <div className="flex items-center gap-2">
           <span className="min-w-0 flex-1 text-[11px] font-medium text-mut">Continue your last session</span>

@@ -149,6 +149,13 @@ function Shell() {
       const next = workspaces[(index + (command === "workspace.next" ? 1 : -1) + workspaces.length) % workspaces.length];
       // One workspace: still handled, so the chord never reaches the shell.
       if (next && next.id !== settings?.activeWorkspace) void window.deck.updateSettings({ activeWorkspace: next.id });
+    } else if (command === "layer.next" || command === "layer.prev") {
+      const layers = settings?.layers ?? [];
+      const index = layers.findIndex((layer) => layer.id === settings?.activeLayer);
+      const next = layers[(index + (command === "layer.next" ? 1 : -1) + layers.length) % layers.length];
+      // One layer: still handled, so the chord never reaches the shell.
+      if (next && next.id !== settings?.activeLayer) void window.deck.updateSettings({ activeLayer: next.id });
+      setView("terminal");
     } else if (command === "tab.new" || command === "tab.newAgent") {
       setView("terminal");
       void newTab(command === "tab.newAgent" ? { agent: settings?.defaultAgent } : undefined);

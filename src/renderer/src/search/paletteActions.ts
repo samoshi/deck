@@ -47,7 +47,7 @@ const sectionKeywords: Record<SettingsSection, string> = {
   appearance: "theme font terminal cursor",
   plugins: "extensions",
   keybinds: "shortcuts keyboard",
-  workspaces: "board jira linear github tracker owner repo roots folder",
+  workspaces: "board jira linear github tracker owner repo roots folder layer group tabs",
   general: "hotkey agent model start page dock sharing auto-fix",
 };
 
@@ -122,6 +122,7 @@ export function usePaletteActions({ onView, onSettings, onSidebar }: PaletteActi
       toggle(settings.autoFix.enabled, "Turn auto-fix off", "Turn auto-fix on", "Agents fix my broken pull requests", { autoFix: { ...settings.autoFix, enabled: !settings.autoFix.enabled } }),
       toggle(appearance.cursorBlink, "Stop the cursor blinking", "Make the cursor blink", "Terminal", { terminalAppearance: { ...appearance, cursorBlink: !appearance.cursorBlink } }),
       ...choices("Workspace", settings.workspaces.map(({ id, name }) => ({ id, label: name })), settings.activeWorkspace, (activeWorkspace) => update({ activeWorkspace })),
+      ...choices("Layer", settings.layers.map(({ id, name }) => ({ id, label: name })), settings.activeLayer, (activeLayer) => update({ activeLayer })),
       ...choices("Default agent", agents.map((id) => ({ id, label: agentLabels[id] })), settings.defaultAgent, (defaultAgent) => update({ defaultAgent })),
       ...choices<string>("Agent model", askModels, settings.askModel, (askModel) => update({ askModel })),
       ...choices("Start page", pages.map((id) => ({ id, label: viewTitles[id] })), settings.defaultView, (defaultView) => update({ defaultView })),

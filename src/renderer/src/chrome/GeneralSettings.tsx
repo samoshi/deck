@@ -40,6 +40,15 @@ export function GeneralSettings() {
                 <option value="terminal">Terminal</option><option value="agent">Agent</option><option value="reviews">Reviews</option><option value="board">Board</option>
               </select>
             </Field>
+            <Field label="On start, bring tabs back">
+              <select aria-label="On start, bring tabs back" className={`w-full ${control}`} value={settings.restoreTabs}
+                onChange={(e) => void update({ restoreTabs: e.target.value as DeckSettings["restoreTabs"] })}>
+                <option value="active">The layer I was in, rest paused</option>
+                <option value="all">Every layer, running</option>
+                <option value="paused">All paused, I resume them</option>
+                <option value="off">Don't remember tabs</option>
+              </select>
+            </Field>
           </div>
           <div className="grid grid-cols-2 gap-4">
             {([["tab", "New tab starts in"], ["split", "Split pane starts in"]] as const).map(([action, label]) => (

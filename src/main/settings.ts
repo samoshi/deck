@@ -1,6 +1,7 @@
 import {
   defaultSettings,
   defaultWorkspaceSettings,
+  layerOf,
   legacyWorkspaceId,
   workspaceKeys,
   type BoardSettings,
@@ -33,6 +34,10 @@ function legacyBoard(stored: Partial<WorkspaceSettings>): Partial<BoardSettings>
  *  existed must still pick up its default. */
 function withDefaults(stored: Partial<Workspace>): Workspace {
   const board = { ...defaultWorkspaceSettings.board, ...legacyBoard(stored), ...stored.board };
+  // A workspace saved before layers existed holds its tabs in the one default
+  // layer, and a group whose layer has since been deleted goes with it.
+  const layers = stored.layers?.length ? stored.layers : defaultWorkspaceSettings.layers;
+  const groups = (stored.groups ?? []).filter((group) => layers.some((layer) => layer.id === group.layer));
   return {
     ...defaultWorkspaceSettings,
     id: stored.id ?? legacyWorkspaceId,
@@ -47,6 +52,9 @@ function withDefaults(stored: Partial<Workspace>): Workspace {
     linear: { ...defaultWorkspaceSettings.linear, ...stored.linear },
     githubProjects: { ...defaultWorkspaceSettings.githubProjects, ...stored.githubProjects },
     github: { ...defaultWorkspaceSettings.github, ...stored.github },
+    layers,
+    activeLayer: layerOf(stored.activeLayer, layers),
+    groups,
   };
 }
 
