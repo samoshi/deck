@@ -8,7 +8,7 @@ import { parsePluginAction } from "../src/shared/extensions.js";
 const fixture = vi.hoisted(() => ({ root: "", settings: new Map<string, unknown>() }));
 vi.mock("electron", () => ({ app: { getPath: () => fixture.root }, dialog: {}, shell: {} }));
 vi.mock("../src/main/db.js", () => ({ kvGet: (key: string) => fixture.settings.get(key), kvSet: (key: string, value: unknown) => fixture.settings.set(key, value) }));
-import { enablePlugin, extensionCatalog, loadPlugin, pluginFile, saveTheme } from "../src/main/extensions.js";
+import { enablePlugin, extensionCatalog, loadPlugin, onActiveThemeChanged, pluginFile, resolveThemeId, saveTheme, startExtensions, stopExtensions, writeActiveTheme } from "../src/main/extensions.js";
 fixture.root = fs.mkdtempSync(path.join(os.tmpdir(), "deck-extensions-"));
 afterAll(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
 
@@ -59,4 +59,41 @@ describe("local plugins", () => {
     expect(() => parsePluginAction({ type: "terminal", agent: "unknown" })).toThrow("agent");
     expect(() => parsePluginAction({ type: "execute", code: "process.exit()" })).toThrow("Unsupported");
   });
+});
+
+describe("active theme file", () => {
+  const file = (): string => path.join(fixture.root, "active-theme");
+
+  it("resolves a full id, an unqualified id and a display name, and ignores what is ambiguous", () => {
+    saveTheme({ id: "ocean-a", name: "Shared Name", extends: "dark" });
+    saveTheme({ id: "ocean-b", name: "Shared Name", extends: "dark" });
+    expect(resolveThemeId("midnight")).toBe("midnight");
+    expect(resolveThemeId("custom:ocean-a")).toBe("custom:ocean-a");
+    expect(resolveThemeId("ocean-a\n")).toBe("custom:ocean-a");
+    expect(resolveThemeId("Rose Pine")).toBe("rose");
+    for (const value of ["Shared Name", "absent", "   ", ""]) expect(resolveThemeId(value)).toBeUndefined();
+  });
+
+  it("follows an external write and ignores the echo of its own", async () => {
+    const seen: string[] = [];
+    fs.writeFileSync(file(), "dark\n");
+    startExtensions();
+    const off = onActiveThemeChanged((id) => seen.push(id));
+    try {
+      // Rewrite until the watcher is attached, rather than racing a fixed sleep.
+      await vi.waitFor(() => {
+        fs.writeFileSync(file(), "forest\n");
+        expect(seen).toEqual(["forest"]);
+      }, { timeout: 15000, interval: 600 });
+
+      // Deck's own selection lands in the file without coming back as a change.
+      writeActiveTheme("custom:ocean-b");
+      expect(fs.readFileSync(file(), "utf8")).toBe("custom:ocean-b\n");
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      expect(seen).toEqual(["forest"]);
+    } finally {
+      off();
+      stopExtensions();
+    }
+  }, 30000);
 });
