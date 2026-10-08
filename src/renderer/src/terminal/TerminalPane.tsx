@@ -82,6 +82,10 @@ export function TerminalPane({ termId, cwd, busy, active, focused = active, onTi
       // Cmd+C interrupts like Ctrl+C. It costs nothing to give up as a copy
       // because a selection reaches the clipboard on its own, below.
       if (event.type === "keydown" && event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && event.code === "KeyC") return handled("\x03");
+      // Terminals send CR for Enter and Shift+Enter alike, so agents cannot tell
+      // them apart. ESC+CR is the sequence claude's /terminal-setup installs for
+      // editors, and what iTerm2, WezTerm, Ghostty, Kitty and Warp send natively.
+      if (event.type === "keydown" && event.key === "Enter" && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) return handled("\x1b\r");
       // macOptionIsMeta turns every Option combo into ESC+key, but non-US layouts
       // type symbols such as @ { } [ ] | with Option. Send those as text.
       if (event.type === "keydown" && event.altKey && !event.metaKey && !event.ctrlKey && /^[!-\/:-@\[-`{-~]$/.test(event.key)) return handled(event.key);
