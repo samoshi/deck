@@ -2,7 +2,7 @@ import { sessionAgent, sessionKey, type AgentLaunch } from "../../shared/agents.
 import type { TermMeta } from "../../main/pty.js";
 import type { AgentSession } from "../../main/sessions.js";
 import type { Worktree } from "../../main/worktrees.js";
-import { layerOf } from "../../shared/settings.js";
+import { layerColors, layerOf, type TabGroup } from "../../shared/settings.js";
 import { restoredTabs } from "./lib/restore.js";
 import { useSettings } from "./lib/useSettings.js";
 import {
@@ -41,6 +41,8 @@ export interface TermTab extends AgentLaunch {
 
 export interface OpenOptions extends AgentLaunch {
   cwd?: string;
+  /** Group the tab opens into; the focused tab's group when left out. */
+  group?: string;
   command?: string;
   issueKey?: string;
   /** Resume this agent session; a tab already resuming it is focused instead. */
@@ -82,6 +84,10 @@ interface TabStore {
   moveTabToLayer: (termId: string, layer: string) => void;
   /** Puts a tab in a group, or takes it out of one with null. */
   setTabGroup: (termId: string, group: string | null) => void;
+  /** Opens a group in the active layer holding the given tabs and answers with
+   *  its id. `parent` nests it inside another group, which is what a split of
+   *  an already grouped tab does. */
+  createGroup: (termIds: string[], opts?: { parent?: string; name?: string }) => Promise<string>;
   /** Starts the terminal behind a paused tab, in its place in the list. */
   resumeTab: (termId: string) => Promise<void>;
   /** Paused tabs still waiting in a layer, by layer id. */
@@ -122,6 +128,10 @@ export function TabProvider({ children }: { children: ReactNode }) {
   tabsRef.current = tabs;
   const activeCwd = useRef<string>();
   activeCwd.current = settings?.newTerminalCwd.tab === "current" ? tabs.find((tab) => tab.termId === activeId)?.cwd : undefined;
+  // A tab opened while a grouped tab is in focus joins that group, so a group
+  // is somewhere you work rather than something you refill by hand.
+  const activeGroup = useRef<string>();
+  activeGroup.current = tabs.find((tab) => tab.termId === activeId)?.groupId;
   const resuming = useRef(new Set<string>());
   const closed = useRef<TermTab[]>([]);
 
@@ -161,7 +171,7 @@ export function TabProvider({ children }: { children: ReactNode }) {
     // Work for an issue belongs in its repo or the default folder, never in
     // whatever folder the active terminal happens to be in.
     const cwd = opts.cwd ?? (opts.issueKey ? undefined : activeCwd.current);
-    const create = { ...opts, cwd, agent, sessionId };
+    const create = { ...opts, cwd, agent, sessionId, group: opts.group ?? activeGroup.current };
     if (sessionId && resuming.current.has(sessionId)) return;
     if (sessionId) resuming.current.add(sessionId);
     try {
@@ -280,6 +290,24 @@ export function TabProvider({ children }: { children: ReactNode }) {
     setTabs((tabs) => tabs.map((tab) => tab.termId === termId ? { ...tab, groupId: group ?? undefined } : tab));
   }, []);
 
+  // Main checks a new terminal's group against the stored settings, so the
+  // group has to be written before anything can be opened into it.
+  const groups = settings?.groups;
+  const activeLayerId = settings?.activeLayer;
+  const createGroup = useCallback(async (termIds: string[], opts: { parent?: string; name?: string } = {}) => {
+    const siblings = (groups ?? []).filter((group) => group.layer === activeLayerId);
+    const group: TabGroup = {
+      id: `group-${Date.now().toString(36)}`,
+      layer: activeLayerId ?? "",
+      parent: opts.parent,
+      name: opts.name?.trim() || `Group ${siblings.length + 1}`,
+      color: layerColors[siblings.length % layerColors.length],
+    };
+    await window.deck.updateSettings({ groups: [...(groups ?? []), group] });
+    for (const termId of termIds) setTabGroup(termId, group.id);
+    return group.id;
+  }, [groups, activeLayerId, setTabGroup]);
+
   const moveTabToWorkspace = useCallback((termId: string, workspace: string) => {
     window.deck.term.moveToWorkspace(termId, workspace);
     setTabs((tabs) => {
@@ -369,8 +397,8 @@ export function TabProvider({ children }: { children: ReactNode }) {
   }, {}), [tabs, layers]);
 
   const store = useMemo<TabStore>(
-    () => ({ tabs: layerTabs, allTabs: tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, resumeTab, pausedByLayer }),
-    [layerTabs, tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, resumeTab, pausedByLayer],
+    () => ({ tabs: layerTabs, allTabs: tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, createGroup, resumeTab, pausedByLayer }),
+    [layerTabs, tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, createGroup, resumeTab, pausedByLayer],
   );
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }

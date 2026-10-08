@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { TabLayer } from "../../../shared/settings.js";
+import { layerColors, type TabLayer } from "../../../shared/settings.js";
 import { Icon } from "../board/icons.js";
-
-/** Colours a layer or group can be tinted with, as theme tokens so every
- *  theme picks its own shade. */
-export const layerColors = ["accent", "blue", "green", "orange", "red"] as const;
 
 export function colorStyle(color?: string): { background: string } | undefined {
   return color ? { background: `var(--color-${color})` } : undefined;
@@ -71,7 +67,11 @@ export function LayerStrip({ layers, activeLayer, counts, paused, onSwitch, onDr
               onDragOver={(event) => { if (event.dataTransfer.types.includes("text/deck-tab")) { event.preventDefault(); setOver(layer.id); } }}
               onDragLeave={() => setOver((id) => id === layer.id ? undefined : id)}
               onDrop={(event) => { event.preventDefault(); setOver(undefined); const termId = event.dataTransfer.getData("text/deck-tab"); if (termId) onDropTab(termId, layer.id); }}
-              className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] ${over === layer.id ? "border-orange text-soft" : active ? "border-edge3 bg-card2 text-soft" : "border-transparent text-mut hover:bg-card hover:text-body"}`}>
+              style={layer.color && (active || over === layer.id) ? {
+                background: `color-mix(in srgb, var(--color-${layer.color}) 18%, transparent)`,
+                borderColor: `var(--color-${layer.color})`,
+              } : undefined}
+              className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] ${over === layer.id ? "border-accent text-soft" : active ? "border-edge3 bg-card2 text-soft" : "border-transparent text-mut hover:bg-card hover:text-body"}`}>
               {layer.color && <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={colorStyle(layer.color)} />}
               <span className="max-w-[9rem] truncate">{layer.name}</span>
               <span className="text-dim">{counts[layer.id] ?? 0}</span>

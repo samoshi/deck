@@ -12,19 +12,28 @@ import { Icon } from "../board/icons.js";
 import { useSessionSuggestions } from "./useSessionSuggestions.js";
 import { useReviewQueue } from "../lib/reviews.js";
 import { useSettings } from "../lib/useSettings.js";
-import { LayerStrip, colorStyle, layerColors } from "./LayerStrip.js";
-import { layerOf, type TabGroup } from "../../../shared/settings.js";
+import { formatChord, resolveKeybinds } from "../../../shared/keybinds.js";
+import { LayerStrip, colorStyle } from "./LayerStrip.js";
+import { layerColors, layerOf, type TabGroup } from "../../../shared/settings.js";
 import { useAttentionCount } from "../agents/attention.js";
 import { useTips } from "../tips/TipsProvider.js";
 import type { View } from "../App.js";
 
-function SessionRow({ tab, session, index, grouped, onNewGroup, onOpen }: { tab: TermTab; session?: AgentSession; index: number; grouped?: boolean; onNewGroup: (termId: string) => void; onOpen: () => void }) {
+/** `indent` is how deep the row sits: 0 ungrouped, 1 in a group, 2 in the
+ *  subgroup a split makes. */
+function SessionRow({ tab, session, index, indent = 0, groupColor, onGroupWith, onNewGroup, onOpen }: { tab: TermTab; session?: AgentSession; index: number; indent?: number; groupColor?: string; onGroupWith: (dragged: string, target: TermTab) => void; onNewGroup: (termId: string) => void; onOpen: () => void }) {
   const { activeId, requestCloseTab, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup } = useTabs();
   const { report } = useTips();
   const settings = useSettings();
   const otherWorkspaces = settings?.workspaces.filter((workspace) => workspace.id !== settings.activeWorkspace) ?? [];
   const otherLayers = (settings?.layers ?? []).filter((layer) => layer.id !== settings?.activeLayer);
   const groups = (settings?.groups ?? []).filter((group) => group.layer === settings?.activeLayer);
+  // Two groups may share a name under different parents, so a subgroup is
+  // offered by its path rather than on its own.
+  const groupPath = (group: TabGroup): string => {
+    const parent = group.parent ? groups.find((other) => other.id === group.parent) : undefined;
+    return parent ? `${parent.name} / ${group.name}` : group.name;
+  };
   const [renaming, setRenaming] = useState(false);
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -34,7 +43,14 @@ function SessionRow({ tab, session, index, grouped, onNewGroup, onOpen }: { tab:
     window.addEventListener("mousedown", dismiss);
     return () => window.removeEventListener("mousedown", dismiss);
   }, [menu]);
-  const [dropTarget, setDropTarget] = useState(false);
+  // Browser rule: a drop along a row's edge reorders, a drop on its middle
+  // groups the two tabs. The zone under the cursor drives both the cue and the act.
+  const [dropZone, setDropZone] = useState<"before" | "into" | "after">();
+  const zoneAt = (event: React.DragEvent): "before" | "into" | "after" => {
+    const box = event.currentTarget.getBoundingClientRect();
+    const offset = (event.clientY - box.top) / box.height;
+    return offset < 0.3 ? "before" : offset > 0.7 ? "after" : "into";
+  };
   const [name, setName] = useState("");
   const cwd = session?.cwd || tab.cwd;
   const git = useGitSummary(cwd);
@@ -45,10 +61,20 @@ function SessionRow({ tab, session, index, grouped, onNewGroup, onOpen }: { tab:
   const tone = session ? statusTones[session.status] : undefined;
   const oscColor = tone ? undefined : tab.tabColor;
   return <div draggable={!renaming} onDragStart={(event) => { event.dataTransfer.setData("text/deck-tab", tab.termId); event.dataTransfer.effectAllowed = "move"; }}
-    onDragOver={(event) => { if (event.dataTransfer.types.includes("text/deck-tab")) { event.preventDefault(); setDropTarget(true); } }}
-    onDragLeave={() => setDropTarget(false)}
-    onDrop={(event) => { event.preventDefault(); setDropTarget(false); const id = event.dataTransfer.getData("text/deck-tab"); if (id && id !== tab.termId) { moveTab(id, tab.termId); setTabGroup(id, tab.groupId ?? null); } }}
-    className={`relative border-b px-2 py-2 ${grouped ? "pl-4" : ""} ${dropTarget ? "border-t border-t-orange" : "border-edge/80"}`}>
+    onDragOver={(event) => { if (event.dataTransfer.types.includes("text/deck-tab")) { event.preventDefault(); setDropZone(zoneAt(event)); } }}
+    onDragLeave={() => setDropZone(undefined)}
+    onDrop={(event) => {
+      event.preventDefault();
+      const zone = zoneAt(event);
+      setDropZone(undefined);
+      const id = event.dataTransfer.getData("text/deck-tab");
+      if (!id || id === tab.termId) return;
+      if (zone === "into") { onGroupWith(id, tab); return; }
+      moveTab(id, zone === "before" ? tab.termId : undefined);
+      setTabGroup(id, tab.groupId ?? null);
+    }}
+    style={groupColor ? { boxShadow: `inset 2px 0 0 var(--color-${groupColor})` } : undefined}
+    className={`relative border-b px-2 py-2 ${indent === 2 ? "pl-7" : indent === 1 ? "pl-4" : ""} ${dropZone === "before" ? "border-t border-t-accent" : dropZone === "after" ? "border-b-accent" : "border-edge/80"}`}>
     <div role="button" tabIndex={0} aria-label={`${title}${agent ? ` (${agentLabels[agent]})` : ""}${tab.paused ? " (paused)" : ""}`} aria-current={active ? "page" : undefined}
       onClick={() => { report({ action: "tab-click" }); onOpen(); }} onKeyDown={(event) => { if (event.target === event.currentTarget && event.key === "Enter") onOpen(); }}
       onDoubleClick={() => { setName(title); setRenaming(true); }}
@@ -68,6 +94,7 @@ function SessionRow({ tab, session, index, grouped, onNewGroup, onOpen }: { tab:
         {waiting && tone && <div className={`mt-1 text-[10px] ${tone.text}`}>{statusLabels[session.status]}</div>}
       </div>
       <span className="self-start pt-0.5 text-[10px] text-dim group-hover:hidden">{tab.paused ? "paused" : index < 9 ? `⌘${index + 1}` : ""}</span>
+      {dropZone === "into" && <div aria-hidden className="pointer-events-none absolute inset-0 rounded-md border-2 border-accent/70 bg-accent/10" />}
       {tab.paused && <div aria-hidden className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-bg/60 opacity-0 backdrop-blur-[1px] transition-opacity duration-150 group-hover:opacity-100">
         <span className="flex items-center gap-1.5 rounded-full border border-edge3 bg-overlay px-3 py-1 text-[11px] text-soft shadow-lg"><Icon name="play" size={10} />Resume</span>
       </div>}
@@ -77,7 +104,7 @@ function SessionRow({ tab, session, index, grouped, onNewGroup, onOpen }: { tab:
     {menu && <div ref={menuRef} role="menu" aria-label={`${title} options`} className="absolute left-3 right-3 z-50 mt-1 rounded-lg border border-edge3 bg-overlay p-1 shadow-xl">
       <button className="menu-item" onClick={() => { setMenu(false); setName(title); setRenaming(true); }}>Rename</button>
       {(groups.length > 0 || tab.groupId) && <div className="px-2 pb-0.5 pt-1.5 text-[10px] tracking-widest text-dim">GROUP</div>}
-      {groups.filter((group) => group.id !== tab.groupId).map((group) => <button key={group.id} className="menu-item" onClick={() => { setMenu(false); setTabGroup(tab.termId, group.id); }}>Add to {group.name}</button>)}
+      {groups.filter((group) => group.id !== tab.groupId).map((group) => <button key={group.id} className="menu-item" onClick={() => { setMenu(false); setTabGroup(tab.termId, group.id); }}>Add to {groupPath(group)}</button>)}
       {tab.groupId && <button className="menu-item" onClick={() => { setMenu(false); setTabGroup(tab.termId, null); }}>Remove from group</button>}
       <button className="menu-item" onClick={() => { setMenu(false); onNewGroup(tab.termId); }}>New group with this tab</button>
       {otherLayers.length > 0 && <div className="px-2 pb-0.5 pt-1.5 text-[10px] tracking-widest text-dim">LAYER</div>}
@@ -93,11 +120,13 @@ function SessionRow({ tab, session, index, grouped, onNewGroup, onOpen }: { tab:
 /** A group's header: its name, how many tabs it holds and, when collapsed, how
  *  many of them want something. Collapsing hides the rows, never the tabs:
  *  they keep running and the number chords still reach them. */
-function GroupHeader({ group, count, waiting, onToggle, onChange, onDelete, onDropTab }: {
+function GroupHeader({ group, count, waiting, nested, onToggle, onChange, onDelete, onDropTab }: {
   group: TabGroup;
   count: number;
   /** Tabs inside whose agent is waiting on the user. */
   waiting: number;
+  /** A subgroup, so the header sits indented under its parent's. */
+  nested?: boolean;
   onToggle: () => void;
   onChange: (group: TabGroup) => void;
   onDelete: () => void;
@@ -123,11 +152,14 @@ function GroupHeader({ group, count, waiting, onToggle, onChange, onDelete, onDr
       ? <input aria-label="Group name" autoFocus value={name} onChange={(event) => setName(event.target.value)} onBlur={rename}
           onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Enter") rename(); if (event.key === "Escape") setRenaming(false); }}
           className="mx-2 my-1 w-[calc(100%-1rem)] rounded bg-bg px-1.5 py-1 text-[11px] text-ink outline-none" />
-      : <button aria-expanded={!group.collapsed} onClick={onToggle} onDoubleClick={() => { setName(group.name); setRenaming(true); }}
+      : <button aria-expanded={!group.collapsed} aria-label={`${group.name} group, ${count} tab${count === 1 ? "" : "s"}`} onClick={onToggle} onDoubleClick={() => { setName(group.name); setRenaming(true); }}
           onContextMenu={(event) => { event.preventDefault(); setMenu(true); }}
-          className={`flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-[11px] ${over ? "bg-card2" : "hover:bg-card"}`}>
+          style={group.color ? {
+            background: `color-mix(in srgb, var(--color-${group.color}) ${over ? 22 : 10}%, transparent)`,
+            boxShadow: `inset 2px 0 0 var(--color-${group.color})`,
+          } : undefined}
+          className={`flex w-full items-center gap-1.5 py-1.5 pr-2 text-left text-[11px] ${nested ? "pl-5" : "pl-2"} ${group.color ? "" : over ? "bg-card2" : "hover:bg-card"}`}>
           <span aria-hidden className="w-2 text-dim">{group.collapsed ? "\u25b8" : "\u25be"}</span>
-          {group.color && <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full" style={colorStyle(group.color)} />}
           <span className="min-w-0 flex-1 truncate text-soft">{group.name}</span>
           {waiting > 0 && group.collapsed && <span aria-label={`${waiting} waiting`} className="rounded-full bg-orange/20 px-1.5 text-[10px] text-orange">{waiting}</span>}
           <span className="text-dim">{count}</span>
@@ -141,7 +173,7 @@ function GroupHeader({ group, count, waiting, onToggle, onChange, onDelete, onDr
           className={`h-4 w-4 rounded-full ${group.color === color ? "ring-2 ring-soft" : ""}`} />)}
       </div>
       <div className="my-1 border-t border-edge2" />
-      <button className="menu-item" onClick={() => { setMenu(false); onDelete(); }}>Ungroup tabs</button>
+      <button className="menu-item" onClick={() => { setMenu(false); onDelete(); }}>{nested ? "Ungroup tabs" : "Ungroup tabs and subgroups"}</button>
     </div>}
   </div>;
 }
@@ -149,7 +181,7 @@ function GroupHeader({ group, count, waiting, onToggle, onChange, onDelete, onDr
 const footerViews = ["terminal", "board", "agent", "reviews"] as const;
 
 export function Sidebar({ view, onView }: { view: View; onView: (view: View) => void }) {
-  const { tabs, allTabs, newTab, focusTab, closeTab, setTabGroup, moveTabToLayer, resumeTab, pausedByLayer } = useTabs();
+  const { tabs, allTabs, newTab, focusTab, closeTab, setTabGroup, createGroup, moveTab, moveTabToLayer, resumeTab, pausedByLayer } = useTabs();
   const [archive, setArchive] = useState(false);
   const [worktreesOpen, setWorktreesOpen] = useState(false);
   const [sweepOpen, setSweepOpen] = useState(false);
@@ -234,6 +266,8 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
     try { await newTab({ agent }); onView("terminal"); }
     catch (error) { setError(String(error)); }
   };
+  const keybinds = resolveKeybinds(settings?.keybinds);
+  const defaultAgent = settings?.defaultAgent ?? "claude";
   const layers = settings?.layers ?? [];
   const activeLayer = settings?.activeLayer ?? "";
   const layerGroups = (settings?.groups ?? []).filter((group) => group.layer === activeLayer);
@@ -248,14 +282,21 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
   const saveGroups = (next: TabGroup[]) => void window.deck.updateSettings({
     groups: [...(settings?.groups ?? []).filter((group) => group.layer !== activeLayer), ...next],
   });
-  const newGroup = (termId?: string) => {
-    const group: TabGroup = { id: `group-${Date.now().toString(36)}`, layer: activeLayer, name: `Group ${layerGroups.length + 1}` };
-    saveGroups([...layerGroups, group]);
-    if (termId) setTabGroup(termId, group.id);
+  const newGroup = (...termIds: string[]) => void createGroup(termIds);
+
+  // Dropping a tab onto another joins that one's group, or starts a group
+  // holding the pair when it has none.
+  const groupWith = (dragged: string, target: TermTab) => {
+    moveTab(dragged, target.termId);
+    if (target.groupId) setTabGroup(dragged, target.groupId);
+    else newGroup(target.termId, dragged);
   };
+  // Ungrouping a group takes its subgroups with it: they exist to sit inside
+  // it, so leaving them behind would orphan rows the user meant to flatten.
   const ungroup = (group: TabGroup) => {
-    allTabs.filter((tab) => tab.groupId === group.id).forEach((tab) => setTabGroup(tab.termId, null));
-    saveGroups(layerGroups.filter((other) => other.id !== group.id));
+    const gone = new Set([group.id, ...layerGroups.filter((other) => other.parent === group.id).map((other) => other.id)]);
+    allTabs.filter((tab) => tab.groupId && gone.has(tab.groupId)).forEach((tab) => setTabGroup(tab.termId, null));
+    saveGroups(layerGroups.filter((other) => !gone.has(other.id)));
   };
   const waitingIn = (members: TermTab[]) =>
     members.filter((tab) => ["needs_input", "needs_review"].includes(byTerm.get(tab.termId)?.status ?? "")).length;
@@ -268,29 +309,45 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
   ].filter(Boolean).join(" · ");
 
   // Tabs render in their own order, and a group opens at its first member so a
-  // tab never jumps across the sidebar just for being grouped.
+  // tab never jumps across the sidebar just for being grouped. A subgroup (what
+  // splitting a grouped tab makes) renders inside its parent, below the tabs
+  // the parent holds directly.
   const rows: React.JSX.Element[] = [];
   const done = new Set<string>();
-  const row = (tab: TermTab, grouped?: boolean) => <SessionRow key={tab.termId} tab={tab} session={byTerm.get(tab.termId)}
-    index={tabs.indexOf(tab)} grouped={grouped} onNewGroup={newGroup} onOpen={() => { focusTab(tab.termId); onView("terminal"); }} />;
-  const groupRows = (group: TabGroup, members: TermTab[]) => {
-    rows.push(<GroupHeader key={group.id} group={group} count={members.length} waiting={waitingIn(members)}
+  const drawn = new Set<string>();
+  const membersOf = (group: TabGroup) => visibleTabs.filter((tab) => tab.groupId === group.id);
+  const childrenOf = (group: TabGroup) => layerGroups.filter((other) => other.parent === group.id);
+  const row = (tab: TermTab, group?: TabGroup, indent = 0) => <SessionRow key={tab.termId} tab={tab} session={byTerm.get(tab.termId)}
+    index={tabs.indexOf(tab)} indent={indent} groupColor={group?.color} onGroupWith={groupWith} onNewGroup={newGroup}
+    onOpen={() => { focusTab(tab.termId); onView("terminal"); }} />;
+  const groupRows = (group: TabGroup, depth: number) => {
+    drawn.add(group.id);
+    const members = membersOf(group);
+    const children = childrenOf(group);
+    // A collapsed group carries the count of everything folded under it,
+    // subgroups included, so nothing disappears without a number for it.
+    const held = [...members, ...children.flatMap(membersOf)];
+    held.forEach((tab) => done.add(tab.termId));
+    rows.push(<GroupHeader key={group.id} group={group} count={held.length} waiting={waitingIn(held)} nested={depth > 0}
       onToggle={() => saveGroups(layerGroups.map((other) => other.id === group.id ? { ...other, collapsed: !other.collapsed } : other))}
       onChange={(next) => saveGroups(layerGroups.map((other) => other.id === group.id ? next : other))}
       onDelete={() => ungroup(group)}
       onDropTab={(termId) => setTabGroup(termId, group.id)} />);
-    if (!group.collapsed) for (const member of members) rows.push(row(member, true));
+    if (group.collapsed) return;
+    for (const member of members) rows.push(row(member, group, depth + 1));
+    for (const child of children) groupRows(child, depth + 1);
   };
   for (const tab of visibleTabs) {
     if (done.has(tab.termId)) continue;
     const group = tab.groupId ? groupById.get(tab.groupId) : undefined;
-    if (!group) { done.add(tab.termId); rows.push(row(tab)); continue; }
-    const members = visibleTabs.filter((other) => other.groupId === group.id);
-    members.forEach((member) => done.add(member.termId));
-    groupRows(group, members);
+    // A subgroup is drawn as part of its parent, so the parent is what the
+    // first member of either opens.
+    const top = group?.parent ? groupById.get(group.parent) ?? group : group;
+    if (!top) { done.add(tab.termId); rows.push(row(tab)); continue; }
+    groupRows(top, 0);
   }
   // An emptied group keeps its header, so it is still a place to drop a tab.
-  for (const group of layerGroups) if (!visibleTabs.some((tab) => tab.groupId === group.id)) groupRows(group, []);
+  for (const group of layerGroups) if (!group.parent && !drawn.has(group.id)) groupRows(group, 0);
 
   return <aside aria-label="Sessions" style={{ width }} onWheel={onWheel} className="relative flex shrink-0 select-none flex-col border-r border-edge bg-panel font-sans">
     <div role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabIndex={0}
@@ -307,8 +364,8 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
       <button aria-label="Show sessions needing attention" aria-pressed={filter === "attention"} title="Filter: needs attention" onClick={() => setFilter(filter === "all" ? "attention" : "all")} className={filter === "attention" ? "text-orange" : "text-mut hover:text-ink"}><Icon name="sliders" size={14} /></button>
       <button aria-label="New session" aria-expanded={menu} title="New session" onClick={() => setMenu(!menu)} className="text-mut hover:text-ink"><Icon name="plus" size={16} /></button>
       {menu && <div className="absolute right-2 top-9 z-50 w-48 rounded-lg border border-edge3 bg-overlay p-1 shadow-xl">
-        <button onClick={() => void launch()} className="menu-item"><Icon name="terminal" />New terminal<span className="ml-auto text-dim">⌘T</span></button>
-        {(["claude", "codex"] as const).map((agent) => <button key={agent} onClick={() => void launch(agent)} className="menu-item"><Icon name="sparkle" />New {agentLabels[agent]}</button>)}
+        <button aria-label="New terminal" onClick={() => void launch()} className="menu-item"><Icon name="terminal" />New terminal<span className="ml-auto text-dim">{formatChord(keybinds["tab.new"])}</span></button>
+        {(["claude", "codex"] as const).map((agent) => <button key={agent} aria-label={`New ${agentLabels[agent]}`} onClick={() => void launch(agent)} className="menu-item"><Icon name="sparkle" />New {agentLabels[agent]}{agent === defaultAgent && <span className="ml-auto text-dim">{formatChord(keybinds["tab.newAgent"])}</span>}</button>)}
         <button onClick={() => { setMenu(false); newGroup(); }} className="menu-item"><Icon name="layers" />New group</button>
         <div className="my-1 border-t border-edge2" />
         <button disabled={!tabs.length} onClick={closeAllTabs} className="menu-item disabled:opacity-40"><Icon name="x" />Close all tabs</button>

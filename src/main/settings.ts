@@ -1,6 +1,7 @@
 import {
   defaultSettings,
   defaultWorkspaceSettings,
+  flattenGroups,
   layerOf,
   legacyWorkspaceId,
   workspaceKeys,
@@ -37,7 +38,7 @@ function withDefaults(stored: Partial<Workspace>): Workspace {
   // A workspace saved before layers existed holds its tabs in the one default
   // layer, and a group whose layer has since been deleted goes with it.
   const layers = stored.layers?.length ? stored.layers : defaultWorkspaceSettings.layers;
-  const groups = (stored.groups ?? []).filter((group) => layers.some((layer) => layer.id === group.layer));
+  const groups = flattenGroups((stored.groups ?? []).filter((group) => layers.some((layer) => layer.id === group.layer)));
   return {
     ...defaultWorkspaceSettings,
     id: stored.id ?? legacyWorkspaceId,
