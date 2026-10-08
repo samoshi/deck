@@ -97,3 +97,15 @@ describe("active theme file", () => {
     }
   }, 30000);
 });
+
+describe("symlinked plugins", () => {
+  it("finds a plugin symlinked into the plugins folder", () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "deck-plugin-"));
+    fs.writeFileSync(path.join(target, "deck-plugin.json"), JSON.stringify({ apiVersion: 1, id: "linked", name: "Linked", version: "1.0.0", entry: "index.js" }));
+    fs.writeFileSync(path.join(target, "index.js"), "export default {};");
+    const plugins = path.join(fixture.root, "plugins");
+    fs.mkdirSync(plugins, { recursive: true });
+    fs.symlinkSync(target, path.join(plugins, "linked"));
+    expect(extensionCatalog().plugins.map((plugin) => plugin.id)).toContain("linked");
+  });
+});

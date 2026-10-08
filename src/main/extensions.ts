@@ -71,7 +71,11 @@ export function extensionCatalog(): ExtensionCatalog {
   }
   const roots = new Map(installed().map((plugin) => [plugin.path, plugin.enabled]));
   if (fs.existsSync(directories.pluginsDirectory)) for (const entry of fs.readdirSync(directories.pluginsDirectory, { withFileTypes: true })) {
-    if (entry.isDirectory()) { const root = path.join(directories.pluginsDirectory, entry.name); if (!roots.has(root)) roots.set(root, true); }
+    const root = path.join(directories.pluginsDirectory, entry.name);
+    // readdir never follows a link, so a plugin symlinked in from its own
+    // checkout arrives as a symlink and has to be stat'd to be seen at all.
+    const directory = entry.isDirectory() || (entry.isSymbolicLink() && fs.statSync(root, { throwIfNoEntry: false })?.isDirectory() === true);
+    if (directory && !roots.has(root)) roots.set(root, true);
   }
   const ids = new Set<string>();
   for (const [root, enabled] of roots) {
