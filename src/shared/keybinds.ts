@@ -37,7 +37,7 @@ export const keybindInfos: KeybindInfo[] = [
   { id: "presentation", label: "Toggle Presentation view", group: "Workbench", default: "Meta+Shift+P" },
   { id: "workspace.next", label: "Next workspace", group: "Workbench", default: "Meta+Shift+]" },
   { id: "workspace.prev", label: "Previous workspace", group: "Workbench", default: "Meta+Shift+[" },
-  // The splits take the arrows with Cmd-Alt and Cmd-Shift; layers sit a tier above them.
+  // The splits take ⌘⌥ and ⌘⇧ with the arrows; layers sit a tier above them.
   { id: "layer.next", label: "Next layer", group: "Workbench", default: "Meta+Alt+Shift+ArrowDown" },
   { id: "layer.prev", label: "Previous layer", group: "Workbench", default: "Meta+Alt+Shift+ArrowUp" },
   { id: "tab.new", label: "New terminal tab", group: "Terminal", default: "Meta+N" },
