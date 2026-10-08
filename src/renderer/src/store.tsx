@@ -3,6 +3,7 @@ import type { TermMeta } from "../../main/pty.js";
 import type { AgentSession } from "../../main/sessions.js";
 import type { Worktree } from "../../main/worktrees.js";
 import { layerColors, layerOf, type TabGroup } from "../../shared/settings.js";
+import { paneReleased, paneRenamed } from "./lib/bus.js";
 import { restoredTabs } from "./lib/restore.js";
 import { useSettings } from "./lib/useSettings.js";
 import {
@@ -204,6 +205,9 @@ export function TabProvider({ children }: { children: ReactNode }) {
     try {
       const meta = await window.deck.term.create({ cwd: tab.cwd, agent: tab.agent, sessionId: tab.sessionId, layer: tab.layerId, group: tab.groupId });
       if (tab.customTitle) localStorage.setItem(`deck.tab.name.${meta.id}`, tab.customTitle);
+      // The pane layout is keyed by terminal id and kept by the terminal view,
+      // so it is told about the swap before the tab list changes under it.
+      paneRenamed(termId, meta.id);
       setTabs((tabs) => {
         const real = toTab(meta);
         return tabs.filter((other) => other.termId !== meta.id).map((other) => other.termId === termId ? real : other);
@@ -282,6 +286,7 @@ export function TabProvider({ children }: { children: ReactNode }) {
 
   const moveTabToLayer = useCallback((termId: string, layer: string) => {
     window.deck.term.place(termId, { layer, group: null });
+    paneReleased(termId);
     setTabs((tabs) => tabs.map((tab) => tab.termId === termId ? { ...tab, layerId: layer, groupId: undefined } : tab));
   }, []);
 

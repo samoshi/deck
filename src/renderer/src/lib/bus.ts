@@ -55,3 +55,47 @@ export function onOpenPullRequest(cb: (detail: OpenPrDetail) => void): () => voi
   window.addEventListener(OPEN_PR, listener);
   return () => window.removeEventListener(OPEN_PR, listener);
 }
+
+// A resumed tab is a new terminal in an old tab's place, so whatever holds
+// state against the terminal id (the pane layout) is told to follow it.
+const PANE_RENAMED = "deck:pane-renamed";
+
+export interface PaneRenamedDetail { from: string; to: string }
+
+export function paneRenamed(from: string, to: string): void {
+  window.dispatchEvent(new CustomEvent(PANE_RENAMED, { detail: { from, to } }));
+}
+
+export function onPaneRenamed(cb: (detail: PaneRenamedDetail) => void): () => void {
+  const listener = (e: Event) => cb((e as CustomEvent<PaneRenamedDetail>).detail);
+  window.addEventListener(PANE_RENAMED, listener);
+  return () => window.removeEventListener(PANE_RENAMED, listener);
+}
+
+const ADOPT_PANE = "deck:adopt-pane";
+
+/** Put a terminal that already exists into a split, rather than opening one. */
+export interface AdoptPaneDetail { termId: string; towards: "up" | "down" | "left" | "right" }
+
+export function adoptPane(detail: AdoptPaneDetail): void {
+  window.dispatchEvent(new CustomEvent(ADOPT_PANE, { detail }));
+}
+
+export function onAdoptPane(cb: (detail: AdoptPaneDetail) => void): () => void {
+  const listener = (e: Event) => cb((e as CustomEvent<AdoptPaneDetail>).detail);
+  window.addEventListener(ADOPT_PANE, listener);
+  return () => window.removeEventListener(ADOPT_PANE, listener);
+}
+
+const PANE_RELEASED = "deck:pane-released";
+
+/** A tab has left this layer, so it also leaves the split it was part of. */
+export function paneReleased(termId: string): void {
+  window.dispatchEvent(new CustomEvent(PANE_RELEASED, { detail: termId }));
+}
+
+export function onPaneReleased(cb: (termId: string) => void): () => void {
+  const listener = (e: Event) => cb((e as CustomEvent<string>).detail);
+  window.addEventListener(PANE_RELEASED, listener);
+  return () => window.removeEventListener(PANE_RELEASED, listener);
+}

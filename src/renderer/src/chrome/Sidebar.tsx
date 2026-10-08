@@ -17,6 +17,7 @@ import { LayerStrip, colorStyle } from "./LayerStrip.js";
 import { layerColors, layerOf, type TabGroup } from "../../../shared/settings.js";
 import { useAttentionCount } from "../agents/attention.js";
 import { useTips } from "../tips/TipsProvider.js";
+import { adoptPane } from "../lib/bus.js";
 import type { View } from "../App.js";
 
 /** `indent` is how deep the row sits: 0 ungrouped, 1 in a group, 2 in the
@@ -107,6 +108,7 @@ function SessionRow({ tab, session, index, indent = 0, groupColor, onGroupWith, 
       {groups.filter((group) => group.id !== tab.groupId).map((group) => <button key={group.id} className="menu-item" onClick={() => { setMenu(false); setTabGroup(tab.termId, group.id); }}>Add to {groupPath(group)}</button>)}
       {tab.groupId && <button className="menu-item" onClick={() => { setMenu(false); setTabGroup(tab.termId, null); }}>Remove from group</button>}
       <button className="menu-item" onClick={() => { setMenu(false); onNewGroup(tab.termId); }}>New group with this tab</button>
+      {!active && !tab.paused && <button className="menu-item" onClick={() => { setMenu(false); adoptPane({ termId: tab.termId, towards: "right" }); }}>Split beside the current tab</button>}
       {otherLayers.length > 0 && <div className="px-2 pb-0.5 pt-1.5 text-[10px] tracking-widest text-dim">LAYER</div>}
       {otherLayers.map((layer) => <button key={layer.id} className="menu-item" onClick={() => { setMenu(false); moveTabToLayer(tab.termId, layer.id); }}>Move to {layer.name}</button>)}
       {otherWorkspaces.length > 0 && <div className="px-2 pb-0.5 pt-1.5 text-[10px] tracking-widest text-dim">WORKSPACE</div>}

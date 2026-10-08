@@ -252,6 +252,8 @@ export function TerminalPane({ termId, cwd, busy, active, focused = active, onTi
   // preload resolves them. Paths go in as one bracketed paste, shell-quoted,
   // so agents like Claude Code pick a dropped image up as an attachment.
   const dropFiles = (event: React.DragEvent) => {
+    // A tab dragged out of the sidebar is a split the terminal view arranges.
+    if (event.dataTransfer.types.includes("text/deck-tab")) return;
     event.preventDefault();
     const paths = Array.from(event.dataTransfer.files, (file) => window.deck.term.pathForFile(file)).filter(Boolean);
     if (!paths.length) return;

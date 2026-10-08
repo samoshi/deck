@@ -155,6 +155,8 @@ Selecting terminal text copies it as soon as you let go, so there is no copy key
 
 Splits follow WezTerm: ⌘⇧ and an arrow opens a shell that way, ⌘⌥ and an arrow opens the default agent, ⌃⌘ and an arrow moves focus, and ⌘Z zooms the focused pane and back. Drag pane dividers to resize; arrow keys resize a focused divider and double-click resets it. Every pane but the focused one is dimmed. Presentation controls adjust text size and switch sessions, and exiting restores your split layout.
 
+A split can also be made from terminals you already have: drag a tab out of the sidebar and drop it on the edge of a pane, and it moves into the split on that side rather than opening another terminal. The tab's own menu offers the same thing beside the current tab. Layouts belong to the workspace and are kept with the rest of its settings, so a split survives a layer switch, a workspace switch, a second window and a restart; a pane whose tab came back paused offers to resume it in place.
+
 ## Development
 
 ```sh

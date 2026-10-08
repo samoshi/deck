@@ -41,6 +41,25 @@ describe("layer migration", () => {
     expect(getSettings().groups).toEqual([{ id: "child", layer: "work", parent: undefined, name: "Split" }]);
   });
 
+  it("gives a workspace saved before panes were stored an empty layout list", () => {
+    state.stored = { theme: "light" };
+    expect(getSettings().paneLayouts).toEqual([]);
+  });
+
+  // Terminals are listed per workspace, so a layout shared across them would
+  // be pruned away by whichever workspace happens to be on screen.
+  it("keeps each workspace's pane layouts to itself", () => {
+    const split = { direction: "row" as const, ratio: 0.5, first: { termId: "a" }, second: { termId: "b" } };
+    state.stored = {
+      activeWorkspace: "one",
+      workspaces: [{ id: "one", name: "One" }, { id: "two", name: "Two", paneLayouts: [{ termId: "z" }] }],
+    };
+    updateSettings({ paneLayouts: [split] });
+    const saved = getSettings().workspaces;
+    expect(saved.find((workspace) => workspace.id === "one")?.paneLayouts).toEqual([split]);
+    expect(saved.find((workspace) => workspace.id === "two")?.paneLayouts).toEqual([{ termId: "z" }]);
+  });
+
   it("keeps each workspace's layers to itself", () => {
     state.stored = {
       activeWorkspace: "one",

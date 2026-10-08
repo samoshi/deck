@@ -1,4 +1,6 @@
-export type PaneLayout = { termId: string } | { direction: "row" | "column"; ratio: number; first: PaneLayout; second: PaneLayout };
+import type { PaneLayout } from "../../../shared/settings.js";
+
+export type { PaneLayout };
 export interface PaneRect { termId: string; left: number; top: number; width: number; height: number }
 
 export function paneIds(layout: PaneLayout): string[] {
@@ -94,4 +96,63 @@ export function zoomPane(layout: PaneLayout, termId: string, ratio = ZOOM_RATIO)
   const inFirst = paneIds(layout.first).includes(termId);
   if (!inFirst && !paneIds(layout.second).includes(termId)) return layout;
   return { ...layout, ratio: inFirst ? ratio : 1 - ratio, first: zoomPane(layout.first, termId, ratio), second: zoomPane(layout.second, termId, ratio) };
+}
+
+/** Points a leaf at a different terminal, keeping its place in the tree. A
+ *  resumed tab is a new terminal standing in for the old one, so the split it
+ *  sat in follows it rather than collapsing. */
+export function renamePane(layout: PaneLayout, from: string, to: string): PaneLayout {
+  if ("termId" in layout) return layout.termId === from ? { termId: to } : layout;
+  const first = renamePane(layout.first, from, to);
+  const second = renamePane(layout.second, from, to);
+  // A tree the rename did not touch is handed back as it was: these run on
+  // every tab change, and an untouched layout should stay the same object.
+  return first === layout.first && second === layout.second ? layout : { ...layout, first, second };
+}
+
+/** Takes one pane out of a tree, collapsing the split it leaves behind. */
+export function removePane(layout: PaneLayout, termId: string): PaneLayout | undefined {
+  if ("termId" in layout) return layout.termId === termId ? undefined : layout;
+  const first = removePane(layout.first, termId);
+  const second = removePane(layout.second, termId);
+  if (first === layout.first && second === layout.second) return layout;
+  return first && second ? { ...layout, first, second } : first ?? second;
+}
+
+/** The layouts a tab list should have: panes whose terminal is gone are
+ *  dropped, and a tab no layout holds yet gets a pane of its own. Callers pass
+ *  the WHOLE workspace, not one layer: a layout you switched away from is
+ *  dormant, not dead. */
+export function syncLayouts(layouts: PaneLayout[], termIds: string[]): PaneLayout[] {
+  const live = new Set(termIds);
+  const seen = new Set<string>();
+  const kept: PaneLayout[] = [];
+  for (const layout of layouts) {
+    // A terminal belongs to one tree. Resuming briefly gives the new id both
+    // the split it inherited and a pane of its own, and the first tree wins.
+    const trimmed = paneIds(layout).reduce<PaneLayout | undefined>(
+      (tree, id) => !tree || (live.has(id) && !seen.has(id)) ? tree : removePane(tree, id),
+      layout);
+    if (!trimmed) continue;
+    for (const id of paneIds(trimmed)) seen.add(id);
+    kept.push(trimmed);
+  }
+  return [...kept, ...termIds.filter((id) => !seen.has(id)).map((termId) => ({ termId }))];
+}
+
+/** Takes a tab out of whatever split it was in and gives it a pane of its own,
+ *  which is what leaving a layer does to the split left behind. */
+export function releasePane(layouts: PaneLayout[], termId: string): PaneLayout[] {
+  return [...layouts.map((layout) => removePane(layout, termId)).filter((layout): layout is PaneLayout => Boolean(layout)), { termId }];
+}
+
+/** Puts a terminal that already exists beside another: it leaves the tree it
+ *  was in and lands on the given side of the target's. */
+export function arrangePane(layouts: PaneLayout[], termId: string, target: string, direction: "row" | "column", before: boolean): PaneLayout[] {
+  if (termId === target) return layouts;
+  const without = layouts.map((layout) => removePane(layout, termId)).filter((layout): layout is PaneLayout => Boolean(layout));
+  const holder = without.find((layout) => paneIds(layout).includes(target));
+  return holder
+    ? without.map((layout) => layout === holder ? splitPane(layout, target, termId, direction, before) : layout)
+    : [...without, splitPane({ termId: target }, target, termId, direction, before)];
 }

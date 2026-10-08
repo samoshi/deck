@@ -194,6 +194,10 @@ export function flattenGroups(groups: TabGroup[]): TabGroup[] {
 /** The settings that differ per client or company: which tracker and GitHub
  *  owner deck talks to, where the code lives. Everything else in DeckSettings
  *  is about deck itself and is shared by every workspace. */
+/** A tab's pane, or a split of two. Kept in settings rather than in the
+ *  renderer's own storage so every window reads one copy of it. */
+export type PaneLayout = { termId: string } | { direction: "row" | "column"; ratio: number; first: PaneLayout; second: PaneLayout };
+
 export interface WorkspaceSettings {
   /** Where the reviews queue comes from; `board.reviewColumns` names the
    *  columns the board source reads. */
@@ -213,9 +217,12 @@ export interface WorkspaceSettings {
   activeLayer: string;
   /** Tab groups across every layer, in sidebar order. */
   groups: TabGroup[];
+  /** How the workspace's terminals are arranged into panes: one tree per
+   *  tab, or per split. Terminals are listed per workspace, so these are too. */
+  paneLayouts: PaneLayout[];
 }
 
-export const workspaceKeys = ["reviewSource", "board", "jira", "linear", "githubProjects", "github", "repoRoots", "defaultCwd", "layers", "activeLayer", "groups"] as const satisfies readonly (keyof WorkspaceSettings)[];
+export const workspaceKeys = ["reviewSource", "board", "jira", "linear", "githubProjects", "github", "repoRoots", "defaultCwd", "layers", "activeLayer", "groups", "paneLayouts"] as const satisfies readonly (keyof WorkspaceSettings)[];
 
 export interface Workspace extends WorkspaceSettings {
   id: string;
@@ -322,6 +329,7 @@ export const defaultWorkspaceSettings: WorkspaceSettings = {
   layers: [{ id: "main", name: "Main" }],
   activeLayer: "main",
   groups: [],
+  paneLayouts: [],
 };
 
 /** A button the user puts in the sidebar footer. It runs one command. When

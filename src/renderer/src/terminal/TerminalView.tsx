@@ -1,20 +1,20 @@
 import { useDisplayMode } from "../chrome/DisplayMode.js";
 import { useEffect, useRef, useState } from "react";
 import { agentLabels, type Agent } from "../../../shared/agents.js";
-import { onOpenTerminalTab } from "../lib/bus.js";
+import { onAdoptPane, onOpenTerminalTab, onPaneReleased, onPaneRenamed } from "../lib/bus.js";
 import { useTips } from "../tips/TipsProvider.js";
 import { useAgentSessions } from "../lib/useSessions.js";
 import { shortPath, useGitSummary } from "../lib/useGitSummary.js";
 import { useSettings } from "../lib/useSettings.js";
 import { formatChord, matchKeybind, resolveKeybinds } from "../../../shared/keybinds.js";
-import { useTabs } from "../store.js";
+import { useTabs, type TermTab } from "../store.js";
 import { splitPlacement } from "../../../shared/settings.js";
 import { Icon } from "../board/icons.js";
 import { ChangesPanel } from "./ChangesPanel.js";
 import { TerminalPane } from "./TerminalPane.js";
 import { FileExplorer } from "./FileExplorer.js";
 import { onTerminalAction, terminalAction } from "./actions.js";
-import { paneIds, paneInDirection, paneRects, paneDividers, pruneLayout, resizePane, splitFor, splitPane, zoomPane, type PaneDirection, type PaneLayout, type PaneDivider } from "./layout.js";
+import { arrangePane, paneIds, paneInDirection, paneRects, paneDividers, releasePane, renamePane, resizePane, splitFor, splitPane, syncLayouts, zoomPane, type PaneDirection, type PaneLayout, type PaneDivider } from "./layout.js";
 
 const splitButtons = [
   { towards: "up", icon: "splitUp", label: "Split up" },
@@ -23,18 +23,27 @@ const splitButtons = [
   { towards: "right", icon: "splitRight", label: "Split right" },
 ] as const;
 
-function savedLayouts(): PaneLayout[] {
-  try { return JSON.parse(localStorage.getItem("deck.pane-layouts") ?? "[]"); } catch { return []; }
-}
+/** Where layouts lived when they were the renderer's own, one list shared by
+ *  every window and workspace. Read once, then dropped. */
+const LEGACY_LAYOUTS = "deck.pane-layouts";
+
+const json = (layouts: PaneLayout[]): string => JSON.stringify(layouts);
 
 export function TerminalView({ visible }: { visible: boolean }) {
   const { mode } = useDisplayMode();
-  const { tabs, activeId, ready, newTab, setTitle, setTabColor, focusTab, requestCloseTab, createGroup } = useTabs();
+  const { tabs, allTabs, activeId, ready, newTab, setTitle, setTabColor, focusTab, requestCloseTab, createGroup, setTabGroup, resumeTab } = useTabs();
   const sessions = useAgentSessions();
   const [panel, setPanel] = useState<"changes" | "files">();
   const [filesVisited, setFilesVisited] = useState(false);
-  const [layouts, setLayouts] = useState<PaneLayout[]>(savedLayouts);
+  const [layouts, setLayouts] = useState<PaneLayout[]>([]);
+  /** What main last agreed the layouts were. Local edits move away from it
+   *  until the write lands, and only a layout still sitting on it may be
+   *  replaced by what settings bring back. */
+  const synced = useRef(json([]));
+  const migrated = useRef(false);
   const [composer, setComposer] = useState(false);
+  /** The pane a dragged tab would land beside, and on which side. */
+  const [dropHint, setDropHint] = useState<{ target: string; towards: PaneDirection }>();
   /** The ratios to put back when the zoom is released; set means zoomed. */
   const [unzoomed, setUnzoomed] = useState<PaneLayout>();
   const [command, setCommand] = useState("");
@@ -47,6 +56,7 @@ export function TerminalView({ visible }: { visible: boolean }) {
   const cwd = session?.cwd || activeTab?.cwd;
   const git = useGitSummary(cwd);
   const settings = useSettings();
+  const workspace = settings?.activeWorkspace;
   const { report } = useTips();
   const keybinds = resolveKeybinds(settings?.keybinds);
   const defaultAgent = settings?.defaultAgent ?? "claude";
@@ -57,25 +67,60 @@ export function TerminalView({ visible }: { visible: boolean }) {
   const rects = currentLayout && mode === "normal" ? paneRects(currentLayout) : activeId ? [{ termId: activeId, left: 0, top: 0, width: 100, height: 100 }] : [];
   useEffect(() => onOpenTerminalTab((options) => void newTab(options)), [newTab]);
   useEffect(() => { if (ready && tabs.length === 0) void newTab(); }, [ready]);
+  // Settings hold the layouts of the workspace on screen, so this both reads
+  // the workspace being switched to and follows a split made in another window.
+  // An edit of our own that has not been written yet outranks both: settings
+  // change for unrelated reasons mid-split, and that must not undo the split.
   useEffect(() => {
-    if (!ready) return;
-    setLayouts((layouts) => {
-      const live = new Set(tabs.map((tab) => tab.termId));
-      const kept = layouts.map((layout) => pruneLayout(layout, live)).filter((layout): layout is PaneLayout => Boolean(layout));
-      const known = new Set(kept.flatMap(paneIds));
-      return [...kept, ...tabs.filter((tab) => !known.has(tab.termId)).map((tab) => ({ termId: tab.termId }))];
-    });
-  }, [tabs.map((tab) => tab.termId).join(","), ready]);
-  useEffect(() => { if (ready) localStorage.setItem("deck.pane-layouts", JSON.stringify(layouts)); }, [layouts, ready]);
+    const stored = settings?.paneLayouts;
+    if (!stored) return;
+    const local = json(layouts);
+    if (local === json(stored)) { synced.current = local; return; }
+    if (local !== synced.current) return;
+    synced.current = json(stored);
+    setLayouts(stored);
+  }, [settings?.paneLayouts, layouts]);
+  useEffect(() => {
+    if (!ready || !settings) return;
+    setLayouts((layouts) => syncLayouts(layouts, allTabs.map((tab) => tab.termId)));
+  }, [allTabs.map((tab) => tab.termId).join(","), ready, workspace]);
+  // Resuming a paused tab swaps in a new terminal, so its pane follows the new
+  // id instead of being pruned away with the old one.
+  useEffect(() => onPaneRenamed(({ from, to }) => setLayouts((layouts) => layouts.map((layout) => renamePane(layout, from, to)))), []);
+  // A tab sent to another layer leaves its split behind rather than holding an
+  // empty slot in it; the layouts of layers off screen are no longer pruned.
+  useEffect(() => onPaneReleased((termId) => setLayouts((layouts) => releasePane(layouts, termId))), []);
+  // Debounced because dragging a divider rewrites the tree on every pointer
+  // move, and every write here crosses to main and reaches the database.
+  useEffect(() => {
+    if (!ready || !settings) return;
+    const local = json(layouts);
+    if (local === json(settings.paneLayouts)) return;
+    const timer = setTimeout(() => {
+      synced.current = local;
+      void window.deck.updateSettings({ paneLayouts: layouts });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [layouts, ready, settings]);
+  useEffect(() => {
+    if (!ready || !settings || migrated.current) return;
+    migrated.current = true;
+    const stored = localStorage.getItem(LEGACY_LAYOUTS);
+    if (!stored) return;
+    localStorage.removeItem(LEGACY_LAYOUTS);
+    try {
+      const legacy: PaneLayout[] = JSON.parse(stored);
+      if (legacy.length && !settings.paneLayouts.length) setLayouts(legacy);
+    } catch { /* an unreadable list is no worse than the empty one it falls back to */ }
+  }, [ready, settings]);
   useEffect(() => { if (panel === "files") setFilesVisited(true); }, [panel]);
   useEffect(() => { if (needsReview) setPanel("changes"); }, [needsReview, activeId]);
   // A split's second terminal is a tab of its own, so the pair is grouped: the
   // sidebar shows them side by side under a header rather than hiding one
   // inside the other's row.
-  const splitGroup = async (): Promise<string | undefined> => {
-    if (!activeTab) return undefined;
-    const placement = splitPlacement(settings?.groups.find((group) => group.id === activeTab.groupId));
-    return "join" in placement ? placement.join : createGroup([activeTab.termId], { parent: placement.parent, name: activeTitle });
+  const splitGroup = async (tab: TermTab, name: string): Promise<string | undefined> => {
+    const placement = splitPlacement(settings?.groups.find((group) => group.id === tab.groupId));
+    return "join" in placement ? placement.join : createGroup([tab.termId], { parent: placement.parent, name });
   };
   const split = async (towards: PaneDirection, agent?: Agent) => {
     if (!activeId || splitting.current) return;
@@ -83,7 +128,7 @@ export function TerminalView({ visible }: { visible: boolean }) {
     const { direction, before } = splitFor[towards];
     setUnzoomed(undefined);
     try {
-      const group = await splitGroup();
+      const group = activeTab ? await splitGroup(activeTab, activeTitle) : undefined;
       const meta = await window.deck.term.create({ cwd: settings?.newTerminalCwd.split === "default" ? undefined : cwd, agent, group });
       setLayouts((layouts) => {
         const withoutNew = layouts.filter((layout) => !("termId" in layout && layout.termId === meta.id));
@@ -94,6 +139,42 @@ export function TerminalView({ visible }: { visible: boolean }) {
       focusTab(meta.id);
     } catch (error) { setError(String(error)); }
     finally { splitting.current = false; }
+  };
+  // Arranging two terminals that already exist, rather than opening a third:
+  // the tab leaves whatever layout it was in and lands beside the target.
+  const adopt = async (termId: string, target: string, towards: PaneDirection) => {
+    const targetTab = tabs.find((tab) => tab.termId === target);
+    const moving = tabs.find((tab) => tab.termId === termId);
+    if (termId === target || !targetTab || !moving || splitting.current) return;
+    splitting.current = true;
+    const { direction, before } = splitFor[towards];
+    setUnzoomed(undefined);
+    try {
+      const group = await splitGroup(targetTab, targetTab.customTitle || targetTab.title);
+      if (group) setTabGroup(termId, group);
+      setLayouts((layouts) => arrangePane(layouts, termId, target, direction, before));
+      // A paused tab waits in its new pane instead: resuming here would start
+      // its terminal from the group it is being moved out of.
+      if (!moving.paused) focusTab(termId);
+    } catch (error) { setError(String(error)); }
+    finally { splitting.current = false; }
+  };
+  // Which pane a drag is over and which of its edges is nearest; percentages,
+  // to match the rects the layout works in.
+  const dropAt = (event: React.DragEvent): { target: string; towards: PaneDirection } | undefined => {
+    const area = paneArea.current?.getBoundingClientRect();
+    if (!area) return undefined;
+    const x = (event.clientX - area.left) / area.width * 100;
+    const y = (event.clientY - area.top) / area.height * 100;
+    const rect = rects.find((rect) => x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height);
+    if (!rect) return undefined;
+    const edges = [
+      ["left", (x - rect.left) / rect.width],
+      ["right", (rect.left + rect.width - x) / rect.width],
+      ["up", (y - rect.top) / rect.height],
+      ["down", (rect.top + rect.height - y) / rect.height],
+    ] as const;
+    return { target: rect.termId, towards: [...edges].sort((a, b) => a[1] - b[1])[0][0] };
   };
   const focusPane = (towards: PaneDirection) => {
     const next = currentLayout && activeId && paneInDirection(currentLayout, activeId, towards);
@@ -106,6 +187,7 @@ export function TerminalView({ visible }: { visible: boolean }) {
     setUnzoomed(unzoomed ? undefined : currentLayout);
     setLayouts((layouts) => layouts.map((layout) => paneIds(layout).includes(activeId) ? unzoomed ?? zoomPane(layout, activeId) : layout));
   };
+  useEffect(() => onAdoptPane(({ termId, towards }) => { if (activeId) void adopt(termId, activeId, towards); }), [activeId, tabs, settings]);
   useEffect(() => onTerminalAction((action) => {
     if (action === "changes") setPanel((panel) => panel === "changes" ? undefined : "changes");
     if (action === "files") setPanel((panel) => panel === "files" ? undefined : "files");
@@ -135,6 +217,7 @@ export function TerminalView({ visible }: { visible: boolean }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [visible, activeId, cwd, settings, unzoomed, currentLayout]);
   const resize = (divider: PaneDivider, ratio: number) => setLayouts((layouts) => layouts.map((layout) => paneIds(layout).includes(activeId ?? "") ? resizePane(layout, divider.path, ratio) : layout));
+  const hintRect = dropHint && rects.find((rect) => rect.termId === dropHint.target);
   const submit = () => {
     if (!activeId || !command.trim()) return;
     window.deck.term.input(activeId, `\x1b[200~${command}\x1b[201~`);
@@ -156,7 +239,22 @@ export function TerminalView({ visible }: { visible: boolean }) {
         </div>
       </div>
       {error && <div className="px-4 py-2 text-xs text-red">{error}<button className="ml-2" onClick={() => setError("")}>×</button></div>}
-      <div ref={paneArea} className="relative min-h-0 flex-1">
+      <div ref={paneArea} className="relative min-h-0 flex-1"
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes("text/deck-tab")) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          setDropHint(dropAt(event));
+        }}
+        onDragLeave={(event) => { if (!paneArea.current?.contains(event.relatedTarget as Node | null)) setDropHint(undefined); }}
+        onDrop={(event) => {
+          const termId = event.dataTransfer.getData("text/deck-tab");
+          if (!termId) return;
+          event.preventDefault();
+          const at = dropAt(event);
+          setDropHint(undefined);
+          if (at) void adopt(termId, at.target, at.towards);
+        }}>
         {tabs.map((tab) => {
           const rect = rects.find((rect) => rect.termId === tab.termId);
           const shown = visible && Boolean(rect);
@@ -164,7 +262,9 @@ export function TerminalView({ visible }: { visible: boolean }) {
             style={rect ? { left: `${rect.left}%`, top: `${rect.top}%`, width: `${rect.width}%`, height: `${rect.height}%`, display: shown ? "flex" : "none", flexDirection: "column" } : { display: "none" }}
             onMouseDown={() => { if (activeId !== tab.termId) focusTab(tab.termId); }}>
             {rects.length > 1 && <div className="flex h-6 shrink-0 items-center gap-2 bg-panel px-3 font-sans text-[10px] text-mut"><Icon name="terminal" size={10} /><span className="truncate">{tab.customTitle || tab.title}</span><button className="ml-auto" title="Close pane" onClick={() => requestCloseTab(tab.termId)}><Icon name="x" size={10} /></button></div>}
-            <div className="min-h-0 flex-1"><TerminalPane termId={tab.termId} cwd={tab.cwd} busy={tab.busy} active={shown} focused={shown && tab.termId === activeId} onTitle={(title) => setTitle(tab.termId, title)} onTabColor={(color) => setTabColor(tab.termId, color)} onCommand={(command) => report({ command })} onFileDrop={() => focusTab(tab.termId)} /></div>
+            <div className="min-h-0 flex-1">{tab.paused
+              ? <button onClick={() => void resumeTab(tab.termId)} className="flex h-full w-full flex-col items-center justify-center gap-2 font-sans text-[11px] text-dim hover:text-soft"><Icon name="play" size={14} />Resume {tab.customTitle || tab.title}</button>
+              : <TerminalPane termId={tab.termId} cwd={tab.cwd} busy={tab.busy} active={shown} focused={shown && tab.termId === activeId} onTitle={(title) => setTitle(tab.termId, title)} onTabColor={(color) => setTabColor(tab.termId, color)} onCommand={(command) => report({ command })} onFileDrop={() => focusTab(tab.termId)} />}</div>
           </div>;
         })}
         {dividers.map((divider) => <div key={divider.path.join("/") || "root"} role="separator" tabIndex={0} aria-label="Resize terminal panes" aria-orientation={divider.direction === "row" ? "vertical" : "horizontal"} aria-valuenow={Math.round(divider.ratio * 100)}
@@ -183,6 +283,13 @@ export function TerminalView({ visible }: { visible: boolean }) {
           onPointerUp={() => { dragging.current = undefined; }}
           style={divider.direction === "row" ? { left: `calc(${divider.area.left + divider.area.width * divider.ratio}% - 3px)`, top: `${divider.area.top}%`, width: 6, height: `${divider.area.height}%`, cursor: "col-resize" } : { top: `calc(${divider.area.top + divider.area.height * divider.ratio}% - 3px)`, left: `${divider.area.left}%`, height: 6, width: `${divider.area.width}%`, cursor: "row-resize" }}
           className="absolute z-10 select-none outline-none hover:bg-edge3 focus-visible:bg-accent" />)}
+        {dropHint && hintRect && <div aria-hidden className="pointer-events-none absolute z-20 rounded border-2 border-accent/70 bg-accent/10"
+          style={{
+            left: `${hintRect.left + (dropHint.towards === "right" ? hintRect.width / 2 : 0)}%`,
+            top: `${hintRect.top + (dropHint.towards === "down" ? hintRect.height / 2 : 0)}%`,
+            width: `${dropHint.towards === "left" || dropHint.towards === "right" ? hintRect.width / 2 : hintRect.width}%`,
+            height: `${dropHint.towards === "up" || dropHint.towards === "down" ? hintRect.height / 2 : hintRect.height}%`,
+          }} />}
         {!tabs.length && <div className="flex h-full items-center justify-center font-sans text-xs text-dim">{formatChord(keybinds["tab.new"])} to open a terminal</div>}
       </div>
       {composer && <div className="workbench-chrome mx-4 mb-3 rounded-lg border border-edge3 bg-card px-3 py-2">
