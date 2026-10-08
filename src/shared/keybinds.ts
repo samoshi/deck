@@ -28,7 +28,7 @@ export const keybindInfos: KeybindInfo[] = [
   { id: "search", label: "Search sessions, history, commands, settings, themes and repositories", group: "Workbench", default: "Meta+K" },
   { id: "settings", label: "Open settings", group: "Workbench", default: "Meta+," },
   { id: "sidebar", label: "Toggle sidebar", group: "Workbench", default: "Meta+B" },
-  { id: "window.new", label: "New window", group: "Workbench", default: "Meta+N" },
+  { id: "window.new", label: "New window", group: "Workbench", default: "Meta+Shift+N" },
   { id: "view.terminal", label: "Terminal page", group: "Workbench", default: "Meta+Alt+Digit1" },
   { id: "view.board", label: "Board page", group: "Workbench", default: "Meta+Alt+Digit2" },
   { id: "view.agent", label: "Agent page", group: "Workbench", default: "Meta+Alt+Digit3" },
@@ -40,8 +40,8 @@ export const keybindInfos: KeybindInfo[] = [
   // The splits take ⌘⌥ and ⌘⇧ with the arrows; layers sit a tier above them.
   { id: "layer.next", label: "Next layer", group: "Workbench", default: "Meta+Alt+Shift+ArrowDown" },
   { id: "layer.prev", label: "Previous layer", group: "Workbench", default: "Meta+Alt+Shift+ArrowUp" },
-  { id: "tab.new", label: "New terminal tab", group: "Terminal", default: "Meta+T" },
-  { id: "tab.newAgent", label: "New tab running the default agent", group: "Terminal", default: "Meta+Shift+N" },
+  { id: "tab.new", label: "New terminal tab", group: "Terminal", default: "Meta+N" },
+  { id: "tab.newAgent", label: "New tab running the default agent", group: "Terminal", default: "Meta+T" },
   { id: "tab.close", label: "Close the active tab", group: "Terminal", default: "Meta+W" },
   { id: "tab.reopen", label: "Reopen the last closed tab", group: "Terminal", default: "Meta+Shift+T" },
   { id: "tab.next", label: "Next tab", group: "Terminal", default: "Ctrl+Tab" },
@@ -91,9 +91,11 @@ export function chordOf(event: KeyPress): string | undefined {
   return [...modifiers, key].join("+");
 }
 
+/** A command with an empty chord is unbound: it keeps its palette and menu
+ *  entries and never answers to a key press. */
 export function matchKeybind(keybinds: Keybinds, event: KeyPress): KeybindCommand | undefined {
   const chord = chordOf(event);
-  return chord ? (Object.keys(keybinds) as KeybindCommand[]).find((id) => keybinds[id] === chord) : undefined;
+  return chord ? (Object.keys(keybinds) as KeybindCommand[]).find((id) => keybinds[id] && keybinds[id] === chord) : undefined;
 }
 
 const symbols: Record<string, string> = { Meta: "⌘", Ctrl: "⌃", Alt: "⌥", Shift: "⇧", Enter: "⏎", Escape: "esc", Backspace: "⌫", Tab: "⇥", Space: "space", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→" };
