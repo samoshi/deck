@@ -81,15 +81,19 @@ export function LayerStrip({ layers, activeLayer, counts, paused, waiting, onSwi
               className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] ${over === layer.id ? "border-accent text-soft" : active ? "border-edge3 bg-card2 text-soft" : "border-transparent text-mut hover:bg-card hover:text-body"}`}>
               {layer.color && <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={colorStyle(layer.color)} />}
               <span className="max-w-[9rem] truncate">{layer.name}</span>
-              <span className="text-dim">{counts[layer.id] ?? 0}</span>
-              {pausedHere(layer.id) > 0 && <span aria-hidden className="text-dim">{"\u23f8"}</span>}
-              {waiting[layer.id] > 0 && <span aria-label={`${waiting[layer.id]} waiting`}
-                className={`text-[10px] text-orange ${waiting[layer.id] > 1 ? "rounded-full bg-orange/20 px-1" : ""}`}>
-                {waiting[layer.id] > 1 ? waiting[layer.id] : "\u25cf"}</span>}
+              {/* The close button takes this cluster's place on hover, so it stays
+                  laid out (invisible, not hidden) to keep the pill from resizing. */}
+              <span className="flex items-center gap-1.5 group-hover:invisible">
+                <span className="text-dim">{counts[layer.id] ?? 0}</span>
+                {pausedHere(layer.id) > 0 && <span aria-hidden className="text-dim">{"\u23f8"}</span>}
+                {waiting[layer.id] > 0 && <span aria-label={`${waiting[layer.id]} waiting`}
+                  className={`text-[10px] text-orange ${waiting[layer.id] > 1 ? "rounded-full bg-orange/20 px-1" : ""}`}>
+                  {waiting[layer.id] > 1 ? waiting[layer.id] : "\u25cf"}</span>}
+              </span>
             </button>}
         {renaming !== layer.id && <button aria-label={`Close ${layer.name} and its ${counts[layer.id] ?? 0} tab${(counts[layer.id] ?? 0) === 1 ? "" : "s"}`}
           title="Close the layer and its tabs" onClick={() => closeLayer(layer.id)}
-          className="absolute -right-1 -top-1 hidden rounded-full border border-edge3 bg-overlay p-[3px] text-mut hover:text-red group-hover:block"><Icon name="x" size={8} /></button>}
+          className="absolute right-2 top-1/2 hidden -translate-y-1/2 text-mut hover:text-red group-hover:block"><Icon name="x" size={10} /></button>}
         {menu === layer.id && <div ref={menuRef} role="menu" aria-label={`${layer.name} options`} className="absolute left-0 top-7 z-50 w-44 rounded-lg border border-edge3 bg-overlay p-1 shadow-xl">
           <button className="menu-item" onClick={() => { setMenu(undefined); setName(layer.name); setRenaming(layer.id); }}>Rename</button>
           <div className="flex gap-1 px-2 py-1.5">
