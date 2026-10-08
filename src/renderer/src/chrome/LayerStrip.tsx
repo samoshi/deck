@@ -8,7 +8,7 @@ export function colorStyle(color?: string): { background: string } | undefined {
 
 const newLayerId = (): string => `layer-${Date.now().toString(36)}`;
 
-export function LayerStrip({ layers, activeLayer, counts, paused, onSwitch, onDropTab, onChange }: {
+export function LayerStrip({ layers, activeLayer, counts, paused, onSwitch, onDropTab, onChange, onCloseLayer }: {
   layers: TabLayer[];
   activeLayer: string;
   /** How many tabs sit in each layer, by layer id. */
@@ -19,6 +19,9 @@ export function LayerStrip({ layers, activeLayer, counts, paused, onSwitch, onDr
   /** A tab dragged onto a layer pill moves there. */
   onDropTab: (termId: string, layer: string) => void;
   onChange: (layers: TabLayer[], activeLayer: string) => void;
+  /** Closes every terminal in a layer. Deleting one without this leaves its
+   *  tabs running and silently folded into the first layer. */
+  onCloseLayer: (id: string) => void;
 }): React.JSX.Element {
   const [menu, setMenu] = useState<string>();
   const [renaming, setRenaming] = useState<string>();
@@ -87,7 +90,8 @@ export function LayerStrip({ layers, activeLayer, counts, paused, onSwitch, onDr
               className={`h-4 w-4 rounded-full ${layer.color === color ? "ring-2 ring-soft" : ""}`} />)}
           </div>
           <div className="my-1 border-t border-edge2" />
-          <button disabled={layers.length < 2} className="menu-item disabled:opacity-40" onClick={() => { setMenu(undefined); remove(layer.id); }}>Delete layer</button>
+          <button disabled={layers.length < 2} className="menu-item disabled:opacity-40" onClick={() => { setMenu(undefined); remove(layer.id); }}>Delete layer, keep its tabs</button>
+          <button disabled={layers.length < 2} className="menu-item text-red disabled:opacity-40" onClick={() => { setMenu(undefined); onCloseLayer(layer.id); remove(layer.id); }}>Close layer and its {counts[layer.id] ?? 0} tab{(counts[layer.id] ?? 0) === 1 ? "" : "s"}</button>
         </div>}
       </div>;
     })}

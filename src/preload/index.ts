@@ -149,6 +149,9 @@ const api = {
     summary: (): Promise<{ shared: number; total: number }> => ipcRenderer.invoke("sharing:summary"),
     setCurrentProject: (cwd?: string): Promise<void> => ipcRenderer.invoke("sharing:current", cwd),
   },
+  customButton: {
+    run: (id: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke("customButton:run", id),
+  },
   worktrees: {
     /** The linked worktree the directory sits in, or null in a main checkout. */
     at: (cwd: string): Promise<Worktree | null> => ipcRenderer.invoke("worktrees:at", cwd),

@@ -51,6 +51,10 @@ const filled = new Set<IconName>(["play", "dot"]);
 
 export type IconName = keyof typeof paths;
 
+export function isIconName(name: string): name is IconName {
+  return name in paths;
+}
+
 export function Icon({
   name,
   size = 13,

@@ -129,6 +129,22 @@ export function GeneralSettings() {
         </Card>
         </div>
 
+        <Card title="Sidebar buttons" description="Your own buttons at the foot of the sidebar. Each runs one command in your login shell; tick Opens a link and the last address the command prints is opened in your browser, so a local tool whose port or token moves is still one click away.">
+          {settings.customButtons.map((button, index) => {
+            const edit = (patch: Partial<typeof button>) => void update({ customButtons: settings.customButtons.map((other, i) => i === index ? { ...other, ...patch } : other) });
+            return <div key={button.id} className="flex flex-wrap items-center gap-2 border-t border-edge2 py-2 first:border-t-0">
+              <input aria-label="Button label" placeholder="Label" value={button.label} onChange={(e) => edit({ label: e.target.value })} className={`w-28 ${control}`} />
+              <input aria-label="Button icon" placeholder="Icon" value={button.icon} onChange={(e) => edit({ icon: e.target.value })} className={`w-24 ${control}`} />
+              <input aria-label="Button command" placeholder="Command" value={button.command} onChange={(e) => edit({ command: e.target.value })} className={`min-w-40 flex-1 font-mono text-[11px] ${control}`} />
+              <Toggle checked={button.opensUrl} onChange={(opensUrl) => edit({ opensUrl })}>Opens a link</Toggle>
+              <button aria-label={`Remove ${button.label || "button"}`} onClick={() => void update({ customButtons: settings.customButtons.filter((_, i) => i !== index) })}
+                className="text-[11px] text-mut hover:text-red">Remove</button>
+            </div>;
+          })}
+          <button onClick={() => void update({ customButtons: [...settings.customButtons, { id: `button-${Date.now().toString(36)}`, label: "New button", icon: "dot", command: "", opensUrl: false }] })}
+            className="mt-2 text-[11px] text-mut hover:text-ink">Add a button</button>
+        </Card>
+
         <Card title="Auto-fix my pull requests" description="Start an agent automatically when one of my PRs breaks.">
           {([["enabled", "Auto-fix enabled"], ["ci", "…when CI fails"], ["conflicts", "…when it gets merge conflicts"]] as const).map(([field, text]) => (
             <Toggle key={field} checked={settings.autoFix[field]} disabled={field !== "enabled" && !settings.autoFix.enabled}

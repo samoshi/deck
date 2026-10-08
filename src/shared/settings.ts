@@ -296,6 +296,8 @@ export interface DeckSettings extends WorkspaceSettings {
   theme: string;
   /** One-off hints about shortcuts and features deck notices you could use. */
   showTips: boolean;
+  /** Buttons the user adds to the sidebar footer. */
+  customButtons: CustomButton[];
   /** Whether first-run setup has been through. Until then deck opens on it. */
   onboarded: boolean;
   terminalAppearance: TerminalAppearanceSettings;
@@ -322,6 +324,19 @@ export const defaultWorkspaceSettings: WorkspaceSettings = {
   groups: [],
 };
 
+/** A button the user puts in the sidebar footer. It runs one command. When
+ *  `opensUrl` is set, the last URL the command prints is opened in the browser
+ *  instead of being thrown away, which is how a button reaches a local tool
+ *  whose address is not fixed. */
+export interface CustomButton {
+  id: string;
+  label: string;
+  /** An icon name; anything the sidebar does not know falls back to a dot. */
+  icon: string;
+  command: string;
+  opensUrl: boolean;
+}
+
 export const defaultSettings: DeckSettings = {
   ...defaultWorkspaceSettings,
   workspaces: [{ id: "default", name: "Default", ...defaultWorkspaceSettings }],
@@ -343,6 +358,7 @@ export const defaultSettings: DeckSettings = {
   newTerminalCwd: { tab: "current", split: "current" },
   theme: "dark",
   showTips: true,
+  customButtons: [],
   onboarded: false,
   terminalAppearance: {
     fontFamily: "",

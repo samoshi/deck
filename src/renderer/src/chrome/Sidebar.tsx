@@ -8,7 +8,7 @@ import { SessionSweep } from "./SessionSweep.js";
 import { useAgentSessions } from "../lib/useSessions.js";
 import { shortPath, useGitSummary } from "../lib/useGitSummary.js";
 import { useTabs, type TermTab } from "../store.js";
-import { Icon } from "../board/icons.js";
+import { Icon, isIconName, type IconName } from "../board/icons.js";
 import { useSessionSuggestions } from "./useSessionSuggestions.js";
 import { useReviewQueue } from "../lib/reviews.js";
 import { useSettings } from "../lib/useSettings.js";
@@ -120,7 +120,7 @@ function SessionRow({ tab, session, index, indent = 0, groupColor, onGroupWith, 
 /** A group's header: its name, how many tabs it holds and, when collapsed, how
  *  many of them want something. Collapsing hides the rows, never the tabs:
  *  they keep running and the number chords still reach them. */
-function GroupHeader({ group, count, waiting, nested, onToggle, onChange, onDelete, onDropTab }: {
+function GroupHeader({ group, count, waiting, nested, onToggle, onChange, onDelete, onClose, onDropTab }: {
   group: TabGroup;
   count: number;
   /** Tabs inside whose agent is waiting on the user. */
@@ -130,6 +130,8 @@ function GroupHeader({ group, count, waiting, nested, onToggle, onChange, onDele
   onToggle: () => void;
   onChange: (group: TabGroup) => void;
   onDelete: () => void;
+  /** Closes every tab the header counts, the group with them. */
+  onClose: () => void;
   onDropTab: (termId: string) => void;
 }) {
   const [menu, setMenu] = useState(false);
@@ -174,6 +176,7 @@ function GroupHeader({ group, count, waiting, nested, onToggle, onChange, onDele
       </div>
       <div className="my-1 border-t border-edge2" />
       <button className="menu-item" onClick={() => { setMenu(false); onDelete(); }}>{nested ? "Ungroup tabs" : "Ungroup tabs and subgroups"}</button>
+      <button className="menu-item text-red" onClick={() => { setMenu(false); onClose(); }}>Close {count} tab{count === 1 ? "" : "s"}</button>
     </div>}
   </div>;
 }
@@ -181,7 +184,7 @@ function GroupHeader({ group, count, waiting, nested, onToggle, onChange, onDele
 const footerViews = ["terminal", "board", "agent", "reviews"] as const;
 
 export function Sidebar({ view, onView }: { view: View; onView: (view: View) => void }) {
-  const { tabs, allTabs, newTab, focusTab, closeTab, setTabGroup, createGroup, moveTab, moveTabToLayer, resumeTab, pausedByLayer } = useTabs();
+  const { tabs, allTabs, newTab, focusTab, closeTab, requestCloseTab, setTabGroup, createGroup, moveTab, moveTabToLayer, resumeTab, pausedByLayer } = useTabs();
   const [archive, setArchive] = useState(false);
   const [worktreesOpen, setWorktreesOpen] = useState(false);
   const [sweepOpen, setSweepOpen] = useState(false);
@@ -332,6 +335,7 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
       onToggle={() => saveGroups(layerGroups.map((other) => other.id === group.id ? { ...other, collapsed: !other.collapsed } : other))}
       onChange={(next) => saveGroups(layerGroups.map((other) => other.id === group.id ? next : other))}
       onDelete={() => ungroup(group)}
+      onClose={() => { held.forEach((tab) => requestCloseTab(tab.termId)); ungroup(group); }}
       onDropTab={(termId) => setTabGroup(termId, group.id)} />);
     if (group.collapsed) return;
     for (const member of members) rows.push(row(member, group, depth + 1));
@@ -378,7 +382,8 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
       onSwitch={(id) => { void window.deck.updateSettings({ activeLayer: id }); onView("terminal"); }}
       paused={pausedByLayer}
       onDropTab={(termId, layer) => moveTabToLayer(termId, layer)}
-      onChange={(next, active) => void window.deck.updateSettings({ layers: next, activeLayer: active })} />}
+      onChange={(next, active) => void window.deck.updateSettings({ layers: next, activeLayer: active })}
+      onCloseLayer={(id) => allTabs.filter((tab) => (tab.layerId ?? layers[0]?.id) === id).forEach((tab) => requestCloseTab(tab.termId))} />}
     <div className="min-h-0 flex-1 overflow-y-auto">
       {pausedHere.length > 0 && !searching && <section aria-label="Paused tabs" className="mx-3 mb-1 mt-3 rounded-lg border border-dashed border-edge2 bg-card/40 p-3">
         <div className="text-[11px] font-medium text-mut">{pausedHere.length} paused from last time</div>
@@ -425,6 +430,13 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
     {archive && <SessionArchive sessions={sessions} onResume={(session) => void resume(session)} onClose={() => setArchive(false)} />}
     {worktreesOpen && <WorktreeSweep onClose={() => setWorktreesOpen(false)} />}
     {sweepOpen && <SessionSweep rows={liveAgentTabs} onClose={() => setSweepOpen(false)} />}
+    {(settings?.customButtons ?? []).length > 0 && <div className="flex shrink-0 flex-wrap items-center gap-1 border-t border-edge px-2 py-1.5">
+      {(settings?.customButtons ?? []).map((button) => <button key={button.id} aria-label={button.label} title={button.command}
+        onClick={async () => { const result = await window.deck.customButton.run(button.id); if (!result.ok) setError(result.error ?? `${button.label} failed`); }}
+        className="flex items-center gap-1.5 rounded px-2 py-1 text-[11px] text-mut hover:bg-card hover:text-ink">
+        <Icon name={iconName(button.icon)} size={12} />{button.label}
+      </button>)}
+    </div>}
     <div className="@container relative flex h-10 shrink-0 items-center gap-1 border-t border-edge px-2">
       {footerIndex >= 0 && <span aria-hidden className="absolute bottom-2 top-2 rounded bg-card2 transition-[left] duration-200 ease-out" style={{ width: `calc((100% - 16px - ${(footerViews.length - 1) * 4}px) / ${footerViews.length})`, left: `calc(8px + (100% - 16px + 4px) / ${footerViews.length} * ${footerIndex})` }} />}
       {footerViews.map((target) => {
@@ -433,4 +445,10 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
       })}
     </div>
   </aside>;
+}
+
+/** Settings hold an icon as free text, so an unknown name draws a dot rather
+ *  than crashing the sidebar. */
+function iconName(name: string): IconName {
+  return isIconName(name) ? name : "dot";
 }

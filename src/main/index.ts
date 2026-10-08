@@ -108,6 +108,7 @@ import {
 } from "./board/board.js";
 import { listSessions, onSessionsChanged, removeSession } from "./sessions.js";
 import { invalidateSessionPullRequests, sessionPullRequests } from "./sessionPrs.js";
+import { registerCustomButtons } from "./customButtons.js";
 import { getSettings, updateSettings } from "./settings.js";
 
 /** Which action brought a window up. Mapped to a window role by windowMode. */
@@ -491,6 +492,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("inbox:refresh", () =>
     refreshPrInbox().catch(() => getPrInbox()),
   );
+  registerCustomButtons();
   startPrWarmer();
   onPrsChanged((key, prs) => broadcast("prs:changed", key, prs));
   startBoardSync();
