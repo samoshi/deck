@@ -148,7 +148,7 @@ function GroupHeader({ group, count, waiting, nested, onToggle, onChange, onDele
     return () => window.removeEventListener("mousedown", dismiss);
   }, [menu]);
   const rename = () => { onChange({ ...group, name: name.trim() || group.name }); setRenaming(false); };
-  return <div className="relative"
+  return <div className="group relative"
     onDragOver={(event) => { if (event.dataTransfer.types.includes("text/deck-tab")) { event.preventDefault(); setOver(true); } }}
     onDragLeave={() => setOver(false)}
     onDrop={(event) => { event.preventDefault(); setOver(false); const termId = event.dataTransfer.getData("text/deck-tab"); if (termId) onDropTab(termId); }}>
@@ -166,8 +166,11 @@ function GroupHeader({ group, count, waiting, nested, onToggle, onChange, onDele
           <span aria-hidden className="w-2 text-dim">{group.collapsed ? "\u25b8" : "\u25be"}</span>
           <span className="min-w-0 flex-1 truncate text-soft">{group.name}</span>
           {waiting > 0 && group.collapsed && <span aria-label={`${waiting} waiting`} className="rounded-full bg-orange/20 px-1.5 text-[10px] text-orange">{waiting}</span>}
-          <span className="text-dim">{count}</span>
+          <span className="text-dim group-hover:invisible">{count}</span>
         </button>}
+    {!renaming && <button aria-label={`Close ${group.name} and its ${count} tab${count === 1 ? "" : "s"}`}
+      title="Close the group and its tabs" onClick={onClose}
+      className="absolute right-2 top-1.5 hidden text-mut hover:text-red group-hover:block"><Icon name="x" size={11} /></button>}
     {menu && <div ref={menuRef} role="menu" aria-label={`${group.name} options`} className="absolute left-3 right-3 z-50 mt-1 rounded-lg border border-edge3 bg-overlay p-1 shadow-xl">
       <button className="menu-item" onClick={() => { setMenu(false); setName(group.name); setRenaming(true); }}>Rename</button>
       <div className="flex gap-1 px-2 py-1.5">
@@ -186,7 +189,10 @@ function GroupHeader({ group, count, waiting, nested, onToggle, onChange, onDele
 const footerViews = ["terminal", "board", "agent", "reviews"] as const;
 
 export function Sidebar({ view, onView }: { view: View; onView: (view: View) => void }) {
-  const { tabs, allTabs, newTab, focusTab, closeTab, requestCloseTab, setTabGroup, createGroup, moveTab, moveTabToLayer, resumeTab, pausedByLayer } = useTabs();
+  const { tabs, allTabs, newTab, focusTab, closeTab, requestCloseTab, setTabGroup, createGroup, moveTab, moveTabToLayer, resumeTab, reopenTabs, pausedByLayer } = useTabs();
+  /** The last group or layer closed, offered back for a few seconds. */
+  const [undo, setUndo] = useState<{ label: string; restore: () => Promise<void> }>();
+  const undoTimer = useRef<ReturnType<typeof setTimeout>>();
   const [archive, setArchive] = useState(false);
   const [worktreesOpen, setWorktreesOpen] = useState(false);
   const [sweepOpen, setSweepOpen] = useState(false);
@@ -283,6 +289,13 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
     counts[id] = (counts[id] ?? 0) + 1;
     return counts;
   }, {});
+  const waitingByLayer = allTabs.reduce<Record<string, number>>((counts, tab) => {
+    const status = byTerm.get(tab.termId)?.status;
+    if (!layers.length || (status !== "needs_input" && status !== "needs_review")) return counts;
+    const id = layerOf(tab.layerId, layers);
+    counts[id] = (counts[id] ?? 0) + 1;
+    return counts;
+  }, {});
   // Groups of other layers are untouched by an edit to this layer's.
   const saveGroups = (next: TabGroup[]) => void window.deck.updateSettings({
     groups: [...(settings?.groups ?? []).filter((group) => group.layer !== activeLayer), ...next],
@@ -302,6 +315,34 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
     const gone = new Set([group.id, ...layerGroups.filter((other) => other.parent === group.id).map((other) => other.id)]);
     allTabs.filter((tab) => tab.groupId && gone.has(tab.groupId)).forEach((tab) => setTabGroup(tab.termId, null));
     saveGroups(layerGroups.filter((other) => !gone.has(other.id)));
+  };
+  // A one-click close has no confirm step, so it leaves an undo behind for the
+  // misclick. The group or layer goes back before its tabs do: main checks a
+  // new terminal's placement against the stored settings.
+  const offerUndo = (name: string, held: TermTab[], restore: () => Promise<void>) => {
+    clearTimeout(undoTimer.current);
+    setUndo({ label: `${name} (${held.length} tab${held.length === 1 ? "" : "s"})`, restore });
+    undoTimer.current = setTimeout(() => setUndo(undefined), 10000);
+  };
+  const closeGroup = (group: TabGroup, held: TermTab[]) => {
+    held.forEach((tab) => requestCloseTab(tab.termId));
+    ungroup(group);
+    offerUndo(group.name, held, async () => {
+      const current = await window.deck.getSettings();
+      await window.deck.updateSettings({ groups: [...current.groups, group] });
+      await reopenTabs(held.length);
+    });
+  };
+  const closeLayer = (id: string) => {
+    const layer = layers.find((other) => other.id === id);
+    const held = allTabs.filter((tab) => layerOf(tab.layerId, layers) === id);
+    held.forEach((tab) => requestCloseTab(tab.termId));
+    if (!layer) return;
+    offerUndo(layer.name, held, async () => {
+      const current = await window.deck.getSettings();
+      await window.deck.updateSettings({ layers: [...current.layers, layer], activeLayer: layer.id });
+      await reopenTabs(held.length);
+    });
   };
   const waitingIn = (members: TermTab[]) =>
     members.filter((tab) => ["needs_input", "needs_review"].includes(byTerm.get(tab.termId)?.status ?? "")).length;
@@ -337,7 +378,7 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
       onToggle={() => saveGroups(layerGroups.map((other) => other.id === group.id ? { ...other, collapsed: !other.collapsed } : other))}
       onChange={(next) => saveGroups(layerGroups.map((other) => other.id === group.id ? next : other))}
       onDelete={() => ungroup(group)}
-      onClose={() => { held.forEach((tab) => requestCloseTab(tab.termId)); ungroup(group); }}
+      onClose={() => closeGroup(group, held)}
       onDropTab={(termId) => setTabGroup(termId, group.id)} />);
     if (group.collapsed) return;
     for (const member of members) rows.push(row(member, group, depth + 1));
@@ -385,7 +426,12 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
       paused={pausedByLayer}
       onDropTab={(termId, layer) => moveTabToLayer(termId, layer)}
       onChange={(next, active) => void window.deck.updateSettings({ layers: next, activeLayer: active })}
-      onCloseLayer={(id) => allTabs.filter((tab) => (tab.layerId ?? layers[0]?.id) === id).forEach((tab) => requestCloseTab(tab.termId))} />}
+      waiting={waitingByLayer}
+      onCloseLayer={closeLayer} />}
+    {undo && <div className="mx-3 mt-2 flex items-center gap-2 rounded-md border border-edge2 bg-card px-2.5 py-1.5 text-[11px] text-mut">
+      <span className="min-w-0 truncate">Closed {undo.label}</span>
+      <button className="ml-auto shrink-0 text-accent hover:underline" onClick={() => { clearTimeout(undoTimer.current); setUndo(undefined); void undo.restore(); }}>Undo</button>
+    </div>}
     <div className="min-h-0 flex-1 overflow-y-auto">
       {pausedHere.length > 0 && !searching && <section aria-label="Paused tabs" className="mx-3 mb-1 mt-3 rounded-lg border border-dashed border-edge2 bg-card/40 p-3">
         <div className="text-[11px] font-medium text-mut">{pausedHere.length} paused from last time</div>

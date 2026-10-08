@@ -8,7 +8,7 @@ export function colorStyle(color?: string): { background: string } | undefined {
 
 const newLayerId = (): string => `layer-${Date.now().toString(36)}`;
 
-export function LayerStrip({ layers, activeLayer, counts, paused, onSwitch, onDropTab, onChange, onCloseLayer }: {
+export function LayerStrip({ layers, activeLayer, counts, paused, waiting, onSwitch, onDropTab, onChange, onCloseLayer }: {
   layers: TabLayer[];
   activeLayer: string;
   /** How many tabs sit in each layer, by layer id. */
@@ -19,6 +19,8 @@ export function LayerStrip({ layers, activeLayer, counts, paused, onSwitch, onDr
   /** A tab dragged onto a layer pill moves there. */
   onDropTab: (termId: string, layer: string) => void;
   onChange: (layers: TabLayer[], activeLayer: string) => void;
+  /** Agents waiting on the user in each layer, by layer id. */
+  waiting: Record<string, number>;
   /** Closes every terminal in a layer. Deleting one without this leaves its
    *  tabs running and silently folded into the first layer. */
   onCloseLayer: (id: string) => void;
@@ -47,17 +49,19 @@ export function LayerStrip({ layers, activeLayer, counts, paused, onSwitch, onDr
     onChange(layers.map((layer) => layer.id === id ? { ...layer, name: value.trim() || layer.name } : layer), activeLayer);
     setRenaming(undefined);
   };
-  // The last layer stays: its tabs would have nowhere to go.
+  // Deck always has a layer, so clearing the last one leaves an empty one
+  // rather than a window with nowhere to put a terminal.
   const remove = (id: string): void => {
-    if (layers.length < 2) return;
     const rest = layers.filter((layer) => layer.id !== id);
-    onChange(rest, activeLayer === id ? rest[0].id : activeLayer);
+    const next = rest.length ? rest : [{ id: newLayerId(), name: "Layer 1" }];
+    onChange(next, rest.length && activeLayer !== id ? activeLayer : next[0].id);
   };
+  const closeLayer = (id: string): void => { onCloseLayer(id); remove(id); };
 
   return <div role="tablist" aria-label="Layers" className="flex shrink-0 flex-wrap items-center gap-1 border-b border-edge px-2 py-1.5">
     {layers.map((layer) => {
       const active = layer.id === activeLayer;
-      return <div key={layer.id} className="relative">
+      return <div key={layer.id} className="group relative">
         {renaming === layer.id
           ? <input aria-label="Layer name" autoFocus value={name} onChange={(event) => setName(event.target.value)}
               onBlur={() => rename(layer.id, name)}
@@ -79,7 +83,13 @@ export function LayerStrip({ layers, activeLayer, counts, paused, onSwitch, onDr
               <span className="max-w-[9rem] truncate">{layer.name}</span>
               <span className="text-dim">{counts[layer.id] ?? 0}</span>
               {pausedHere(layer.id) > 0 && <span aria-hidden className="text-dim">{"\u23f8"}</span>}
+              {waiting[layer.id] > 0 && <span aria-label={`${waiting[layer.id]} waiting`}
+                className={`text-[10px] text-orange ${waiting[layer.id] > 1 ? "rounded-full bg-orange/20 px-1" : ""}`}>
+                {waiting[layer.id] > 1 ? waiting[layer.id] : "\u25cf"}</span>}
             </button>}
+        {renaming !== layer.id && <button aria-label={`Close ${layer.name} and its ${counts[layer.id] ?? 0} tab${(counts[layer.id] ?? 0) === 1 ? "" : "s"}`}
+          title="Close the layer and its tabs" onClick={() => closeLayer(layer.id)}
+          className="absolute -right-1 -top-1 hidden rounded-full border border-edge3 bg-overlay p-[3px] text-mut hover:text-red group-hover:block"><Icon name="x" size={8} /></button>}
         {menu === layer.id && <div ref={menuRef} role="menu" aria-label={`${layer.name} options`} className="absolute left-0 top-7 z-50 w-44 rounded-lg border border-edge3 bg-overlay p-1 shadow-xl">
           <button className="menu-item" onClick={() => { setMenu(undefined); setName(layer.name); setRenaming(layer.id); }}>Rename</button>
           <div className="flex gap-1 px-2 py-1.5">
@@ -90,8 +100,8 @@ export function LayerStrip({ layers, activeLayer, counts, paused, onSwitch, onDr
               className={`h-4 w-4 rounded-full ${layer.color === color ? "ring-2 ring-soft" : ""}`} />)}
           </div>
           <div className="my-1 border-t border-edge2" />
-          <button disabled={layers.length < 2} className="menu-item disabled:opacity-40" onClick={() => { setMenu(undefined); remove(layer.id); }}>Delete layer, keep its tabs</button>
-          <button disabled={layers.length < 2} className="menu-item text-red disabled:opacity-40" onClick={() => { setMenu(undefined); onCloseLayer(layer.id); remove(layer.id); }}>Close layer and its {counts[layer.id] ?? 0} tab{(counts[layer.id] ?? 0) === 1 ? "" : "s"}</button>
+          <button className="menu-item" onClick={() => { setMenu(undefined); remove(layer.id); }}>Delete layer, keep its tabs</button>
+          <button className="menu-item text-red" onClick={() => { setMenu(undefined); closeLayer(layer.id); }}>Close layer and its {counts[layer.id] ?? 0} tab{(counts[layer.id] ?? 0) === 1 ? "" : "s"}</button>
         </div>}
       </div>;
     })}

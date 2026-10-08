@@ -162,8 +162,12 @@ function Shell() {
     } else if (command === "tab.new" || command === "tab.newAgent") {
       setView("terminal");
       void newTab(command === "tab.newAgent" ? { agent: settings?.defaultAgent } : undefined);
-    } else if (command === "tab.close" && view === "terminal" && activeId) {
-      requestCloseTab(activeId);
+    } else if (command === "tab.close" && view === "terminal") {
+      // Handled even with nothing to close, so the chord never reaches the
+      // shell and takes the window with it. A layer holding one paused tab
+      // has no active tab at all, and that tab is still what Meta+W means.
+      const closing = activeId ?? tabs[0]?.termId;
+      if (closing) requestCloseTab(closing);
     } else if (command === "tab.reopen") {
       setView("terminal");
       void reopenTab();

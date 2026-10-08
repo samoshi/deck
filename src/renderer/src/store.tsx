@@ -44,6 +44,8 @@ export interface OpenOptions extends AgentLaunch {
   cwd?: string;
   /** Group the tab opens into; the focused tab's group when left out. */
   group?: string;
+  /** Layer the tab opens into; the active one when left out. */
+  layer?: string;
   command?: string;
   issueKey?: string;
   /** Resume this agent session; a tab already resuming it is focused instead. */
@@ -73,6 +75,9 @@ interface TabStore {
   dismissWorktreeClose: () => void;
   /** Reopens the most recently closed tab: the same session for an agent tab, a shell in the same folder otherwise. */
   reopenTab: () => Promise<void>;
+  /** Reopens the last `count` closed tabs, each back in the layer and group it
+   *  was in. Whoever calls this puts that layer or group back first. */
+  reopenTabs: (count: number) => Promise<void>;
   focusTab: (termId: string) => void;
   setTitle: (termId: string, title: string) => void;
   setTabColor: (termId: string, color: string | null) => void;
@@ -257,6 +262,17 @@ export function TabProvider({ children }: { children: ReactNode }) {
     if (tab) await newTab({ agent: tab.agent, cwd: tab.cwd, sessionId: tab.sessionId });
   }, [newTab]);
 
+  // Undoing a group or layer close, which closed several tabs at once. Main
+  // checks a new terminal's placement against the stored settings, so the
+  // caller restores the group or layer before these go back into it.
+  const reopenTabs = useCallback(async (count: number) => {
+    const batch = closed.current.slice(-count);
+    closed.current = closed.current.slice(0, Math.max(0, closed.current.length - count));
+    for (const tab of batch) {
+      await newTab({ agent: tab.agent, cwd: tab.cwd, sessionId: tab.sessionId, layer: tab.layerId, group: tab.groupId });
+    }
+  }, [newTab]);
+
   const setTitle = useCallback((termId: string, title: string) => {
     setTabs((tabs) => tabs.map((t) => (t.termId === termId ? { ...t, title } : t)));
   }, []);
@@ -402,8 +418,8 @@ export function TabProvider({ children }: { children: ReactNode }) {
   }, {}), [tabs, layers]);
 
   const store = useMemo<TabStore>(
-    () => ({ tabs: layerTabs, allTabs: tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, createGroup, resumeTab, pausedByLayer }),
-    [layerTabs, tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, createGroup, resumeTab, pausedByLayer],
+    () => ({ tabs: layerTabs, allTabs: tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, reopenTabs, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, createGroup, resumeTab, pausedByLayer }),
+    [layerTabs, tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, reopenTabs, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, createGroup, resumeTab, pausedByLayer],
   );
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }
