@@ -21,8 +21,19 @@ describe("keybinds", () => {
     expect(matchKeybind(keybinds, press({ key: "k", code: "KeyK", metaKey: true }))).toBeUndefined();
     expect(matchKeybind(keybinds, press({ key: "w", code: "KeyW", metaKey: true }))).toBe("tab.close");
     expect(matchKeybind(keybinds, press({ key: "t", code: "KeyT", metaKey: true, shiftKey: true }))).toBe("tab.reopen");
-    expect(matchKeybind(keybinds, press({ key: "n", code: "KeyN", metaKey: true, shiftKey: true }))).toBe("tab.newAgent");
-    expect(matchKeybind(keybinds, press({ key: "n", code: "KeyN", metaKey: true }))).toBe("window.new");
+    expect(matchKeybind(keybinds, press({ key: "n", code: "KeyN", metaKey: true, shiftKey: true }))).toBe("window.new");
+    expect(matchKeybind(keybinds, press({ key: "n", code: "KeyN", metaKey: true }))).toBe("tab.new");
+  });
+
+  it("leaves a command whose chord was cleared unbound", () => {
+    const keybinds = resolveKeybinds({ "tab.newAgent": "" });
+    expect(matchKeybind(keybinds, press({ key: "t", code: "KeyT", metaKey: true }))).toBeUndefined();
+  });
+
+  it("opens the default agent's tab on \u2318T, leaving \u2318\u21e7T the reopen", () => {
+    const keybinds = resolveKeybinds({});
+    expect(matchKeybind(keybinds, press({ key: "t", code: "KeyT", metaKey: true }))).toBe("tab.newAgent");
+    expect(matchKeybind(keybinds, press({ key: "t", code: "KeyT", metaKey: true, shiftKey: true }))).toBe("tab.reopen");
   });
 
   it("matches the terminal text size chords, digits coming from the physical key", () => {

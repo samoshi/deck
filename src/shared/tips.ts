@@ -32,11 +32,11 @@ interface TipRule {
 /** Order matters: the first matching rule wins, so specific commands precede general ones. */
 export const tipRules: readonly TipRule[] = [
   { id: "resume-session", command: /^(?:claude\b.*--resume|codex\s+resume)\b/, message: "Sessions resume from the sidebar, or through ⌘K, which also finds them by what you asked." },
-  { id: "agent-tab", command: /^(?:claude|codex)(?:\s|$)/, message: ({ defaultAgent }) => `Press ⌘⇧N to open a new ${agentLabels[defaultAgent]} tab straight away. The default agent lives in Settings.` },
+  { id: "agent-tab", command: /^(?:claude|codex)(?:\s|$)/, message: ({ defaultAgent }) => `Press ⌘T to open a new ${agentLabels[defaultAgent]} tab straight away. The default agent lives in Settings.` },
   { id: "changes-panel", command: /^git\s+(?:status|diff)\b/, message: "⌘E opens the Changes panel, which follows the working tree live." },
   { id: "file-explorer", command: /^(?:ls|tree)(?:\s|$)/, message: "The File explorer in the footer browses this folder." },
   { id: "pr-pages", command: /^gh\s+pr\s+(?:view|checks|status)\b/, message: "The Board (⌘⌥2) and Reviews (⌘⌥4) pages follow your pull requests and their checks." },
-  { id: "new-tab-key", action: { name: "new-tab-button", times: 3 }, message: "⌘T opens a new terminal." },
+  { id: "new-tab-key", action: { name: "new-tab-button", times: 3 }, message: "⌘N opens a new terminal." },
   { id: "close-tab-key", action: { name: "close-tab-button", times: 3 }, message: "⌘W closes the active terminal." },
   { id: "switch-tab-keys", action: { name: "tab-click", times: 5 }, message: "⌘1 to ⌘9 switch between the first nine tabs." },
   { id: "split-keys", action: { name: "split-button", times: 2 }, message: "⌘⇧ and an arrow splits that way; ⌘⌥ and an arrow splits into a new agent." },
