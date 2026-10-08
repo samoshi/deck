@@ -7,7 +7,7 @@ vi.mock("../src/main/db.js", () => ({
 }));
 
 const { getSettings, updateSettings } = await import("../src/main/settings.js");
-const { layerOf } = await import("../src/shared/settings.js");
+const { flattenGroups, layerOf, splitPlacement } = await import("../src/shared/settings.js");
 
 describe("layer migration", () => {
   it("gives a workspace saved before layers the one default layer", () => {
@@ -30,6 +30,15 @@ describe("layer migration", () => {
       groups: [{ id: "a", layer: "work", name: "Repos" }, { id: "b", layer: "gone", name: "Orphan" }],
     }] };
     expect(getSettings().groups.map((group) => group.id)).toEqual(["a"]);
+  });
+
+  it("un-nests a stored subgroup whose parent is gone with its layer", () => {
+    state.stored = { workspaces: [{
+      id: "default", name: "Default",
+      layers: [{ id: "work", name: "Work" }],
+      groups: [{ id: "child", layer: "work", parent: "orphaned", name: "Split" }, { id: "orphaned", layer: "gone", name: "Elsewhere" }],
+    }] };
+    expect(getSettings().groups).toEqual([{ id: "child", layer: "work", parent: undefined, name: "Split" }]);
   });
 
   it("keeps each workspace's layers to itself", () => {
@@ -98,5 +107,38 @@ describe("restoring tabs after a quit", () => {
 
   it("carries a typed name onto the paused row", () => {
     expect(pausedTab(remembered("t1", "work", { customTitle: "deploy" })).customTitle).toBe("deploy");
+  });
+});
+
+describe("nested groups", () => {
+  const group = (id: string, over: Record<string, unknown> = {}) => ({ id, layer: "work", name: id, ...over });
+
+  it("keeps a subgroup whose parent is a top-level group of the same layer", () => {
+    const groups = [group("repos"), group("split", { parent: "repos" })];
+    expect(flattenGroups(groups).map((g) => g.parent)).toEqual([undefined, "repos"]);
+  });
+
+  it("un-nests a subgroup of a subgroup, so nesting stops at two levels", () => {
+    const groups = [group("repos"), group("split", { parent: "repos" }), group("deeper", { parent: "split" })];
+    expect(flattenGroups(groups).map((g) => g.parent)).toEqual([undefined, "repos", undefined]);
+  });
+
+  it("un-nests a subgroup whose parent sits in another layer", () => {
+    const groups = [group("elsewhere", { layer: "personal" }), group("split", { parent: "elsewhere" })];
+    expect(flattenGroups(groups)[1].parent).toBeUndefined();
+  });
+});
+
+describe("where a split's new tab lands", () => {
+  it("starts a top-level group around a split of an ungrouped tab", () => {
+    expect(splitPlacement(undefined)).toEqual({ parent: undefined });
+  });
+
+  it("nests a group inside the source's when that one is top-level", () => {
+    expect(splitPlacement({ id: "repos", layer: "work", name: "Repos" })).toEqual({ parent: "repos" });
+  });
+
+  it("joins the source's subgroup rather than refusing a deeper split", () => {
+    expect(splitPlacement({ id: "split", layer: "work", parent: "repos", name: "Split" })).toEqual({ join: "split" });
   });
 });

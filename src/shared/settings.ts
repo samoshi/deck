@@ -160,9 +160,35 @@ export interface TabGroup {
   id: string;
   /** Layer the group sits in; a group never spans two. */
   layer: string;
+  /** Group this one nests inside, which splitting a grouped tab makes. A
+   *  subgroup never has children of its own, so the sidebar is two deep. */
+  parent?: string;
   name: string;
   color?: string;
   collapsed?: boolean;
+}
+
+/** Colours a layer or group can be tinted with, as theme tokens so every
+ *  theme picks its own shade. */
+export const layerColors = ["accent", "blue", "green", "orange", "red"] as const;
+
+/** Where a split's new tab belongs, given the group its source tab is in. A
+ *  split nests: the pair gets a group of its own inside the source's. Once
+ *  nesting is at the one level groups allow, the new tab joins the source's
+ *  group instead of going deeper, so a split is never refused. */
+export function splitPlacement(source: TabGroup | undefined): { join: string } | { parent?: string } {
+  return source?.parent ? { join: source.id } : { parent: source?.id };
+}
+
+/** Un-nests stored groups that can no longer nest: ones whose parent is gone,
+ *  sits in another layer, or is itself a subgroup. Keeping this at the edge
+ *  means the sidebar can render two levels without guarding against a third. */
+export function flattenGroups(groups: TabGroup[]): TabGroup[] {
+  const byId = new Map(groups.map((group) => [group.id, group]));
+  return groups.map((group) => {
+    const parent = group.parent ? byId.get(group.parent) : undefined;
+    return parent && !parent.parent && parent.layer === group.layer ? group : { ...group, parent: undefined };
+  });
 }
 
 /** The settings that differ per client or company: which tracker and GitHub

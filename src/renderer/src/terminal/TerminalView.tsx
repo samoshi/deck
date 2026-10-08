@@ -8,6 +8,7 @@ import { shortPath, useGitSummary } from "../lib/useGitSummary.js";
 import { useSettings } from "../lib/useSettings.js";
 import { formatChord, matchKeybind, resolveKeybinds } from "../../../shared/keybinds.js";
 import { useTabs } from "../store.js";
+import { splitPlacement } from "../../../shared/settings.js";
 import { Icon } from "../board/icons.js";
 import { ChangesPanel } from "./ChangesPanel.js";
 import { TerminalPane } from "./TerminalPane.js";
@@ -28,7 +29,7 @@ function savedLayouts(): PaneLayout[] {
 
 export function TerminalView({ visible }: { visible: boolean }) {
   const { mode } = useDisplayMode();
-  const { tabs, activeId, ready, newTab, setTitle, setTabColor, focusTab, requestCloseTab } = useTabs();
+  const { tabs, activeId, ready, newTab, setTitle, setTabColor, focusTab, requestCloseTab, createGroup } = useTabs();
   const sessions = useAgentSessions();
   const [panel, setPanel] = useState<"changes" | "files">();
   const [filesVisited, setFilesVisited] = useState(false);
@@ -50,6 +51,7 @@ export function TerminalView({ visible }: { visible: boolean }) {
   const keybinds = resolveKeybinds(settings?.keybinds);
   const defaultAgent = settings?.defaultAgent ?? "claude";
   const needsReview = session?.status === "needs_review";
+  const activeTitle = activeTab?.customTitle || session?.title || activeTab?.agent || activeTab?.title || "Terminal";
   const currentLayout = layouts.find((layout) => paneIds(layout).includes(activeId ?? ""));
   const dividers = currentLayout && mode === "normal" ? paneDividers(currentLayout) : [];
   const rects = currentLayout && mode === "normal" ? paneRects(currentLayout) : activeId ? [{ termId: activeId, left: 0, top: 0, width: 100, height: 100 }] : [];
@@ -67,13 +69,22 @@ export function TerminalView({ visible }: { visible: boolean }) {
   useEffect(() => { if (ready) localStorage.setItem("deck.pane-layouts", JSON.stringify(layouts)); }, [layouts, ready]);
   useEffect(() => { if (panel === "files") setFilesVisited(true); }, [panel]);
   useEffect(() => { if (needsReview) setPanel("changes"); }, [needsReview, activeId]);
+  // A split's second terminal is a tab of its own, so the pair is grouped: the
+  // sidebar shows them side by side under a header rather than hiding one
+  // inside the other's row.
+  const splitGroup = async (): Promise<string | undefined> => {
+    if (!activeTab) return undefined;
+    const placement = splitPlacement(settings?.groups.find((group) => group.id === activeTab.groupId));
+    return "join" in placement ? placement.join : createGroup([activeTab.termId], { parent: placement.parent, name: activeTitle });
+  };
   const split = async (towards: PaneDirection, agent?: Agent) => {
     if (!activeId || splitting.current) return;
     splitting.current = true;
     const { direction, before } = splitFor[towards];
     setUnzoomed(undefined);
     try {
-      const meta = await window.deck.term.create({ cwd: settings?.newTerminalCwd.split === "default" ? undefined : cwd, agent });
+      const group = await splitGroup();
+      const meta = await window.deck.term.create({ cwd: settings?.newTerminalCwd.split === "default" ? undefined : cwd, agent, group });
       setLayouts((layouts) => {
         const withoutNew = layouts.filter((layout) => !("termId" in layout && layout.termId === meta.id));
         const found = withoutNew.some((layout) => paneIds(layout).includes(activeId));
@@ -135,7 +146,7 @@ export function TerminalView({ visible }: { visible: boolean }) {
       <div className="workbench-chrome flex h-16 shrink-0 items-center gap-4 border-b border-edge px-4 font-sans">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-[11px] text-mut"><span className="truncate">{shortPath(cwd)}</span>{git && <><Icon name="branch" size={11} /><span>{git.branch}</span><span className="text-dim">· {git.changedFiles} changed</span></>}</div>
-          <div className="mt-1 truncate text-[13px] font-semibold text-soft">{activeTab?.customTitle || session?.title || activeTab?.agent || activeTab?.title || "Terminal"}</div>
+          <div className="mt-1 truncate text-[13px] font-semibold text-soft">{activeTitle}</div>
         </div>
         <div className="flex items-center gap-1">
           {splitButtons.map(({ towards, icon, label }) => <button key={towards} title={`${label} (${formatChord(keybinds[`split.${towards}`])})`} aria-label={label} onClick={() => { report({ action: "split-button" }); void split(towards); }} className="toolbar-button"><Icon name={icon} size={15} /></button>)}
@@ -172,15 +183,15 @@ export function TerminalView({ visible }: { visible: boolean }) {
           onPointerUp={() => { dragging.current = undefined; }}
           style={divider.direction === "row" ? { left: `calc(${divider.area.left + divider.area.width * divider.ratio}% - 3px)`, top: `${divider.area.top}%`, width: 6, height: `${divider.area.height}%`, cursor: "col-resize" } : { top: `calc(${divider.area.top + divider.area.height * divider.ratio}% - 3px)`, left: `${divider.area.left}%`, height: 6, width: `${divider.area.width}%`, cursor: "row-resize" }}
           className="absolute z-10 select-none outline-none hover:bg-edge3 focus-visible:bg-accent" />)}
-        {!tabs.length && <div className="flex h-full items-center justify-center font-sans text-xs text-dim">⌘T to open a terminal</div>}
+        {!tabs.length && <div className="flex h-full items-center justify-center font-sans text-xs text-dim">{formatChord(keybinds["tab.new"])} to open a terminal</div>}
       </div>
       {composer && <div className="workbench-chrome mx-4 mb-3 rounded-lg border border-edge3 bg-card px-3 py-2">
         <textarea aria-label="Command editor" autoFocus rows={3} value={command} onChange={(event) => setCommand(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && event.metaKey) { event.preventDefault(); submit(); } }} placeholder="Write a command or paste a multiline prompt…" className="w-full resize-y bg-transparent font-mono text-xs leading-5 text-soft outline-none placeholder:text-dim" />
         <div className="flex items-center gap-2 font-sans text-[10px] text-dim"><span>Send to active terminal</span><button className="ml-auto text-mut" onClick={() => setComposer(false)}>Close</button><button disabled={!command.trim()} onClick={submit} className="rounded border border-edge3 px-2 py-1 text-soft disabled:opacity-30">Send ⌘↵</button></div>
       </div>}
       <footer className="workbench-chrome flex h-10 shrink-0 items-center gap-2 border-t border-edge px-4 font-sans text-[11px] text-mut">
-        <button title="New terminal (⌘T)" onClick={() => { report({ action: "new-tab-button" }); void newTab(); }} className="toolbar-button"><Icon name="plus" size={13} /></button>
-        <button title={`New ${agentLabels[defaultAgent]} tab (⌘⇧N)`} onClick={() => void newTab({ agent: defaultAgent })} className="toolbar-button"><Icon name="sparkle" size={13} /></button>
+        <button title={`New terminal (${formatChord(keybinds["tab.new"])})`} onClick={() => { report({ action: "new-tab-button" }); void newTab(); }} className="toolbar-button"><Icon name="plus" size={13} /></button>
+        <button title={`New ${agentLabels[defaultAgent]} tab (${formatChord(keybinds["tab.newAgent"])})`} onClick={() => void newTab({ agent: defaultAgent })} className="toolbar-button"><Icon name="sparkle" size={13} /></button>
         {git && <button onClick={() => terminalAction("changes")} className="flex items-center gap-1.5 rounded border border-edge2 px-2 py-0.5"><Icon name="file" size={11} /><span>{git.changedFiles}</span><span className="text-green">+{git.added}</span><span className="text-red">−{git.removed}</span></button>}
         <button onClick={() => terminalAction("files")} className={`flex items-center gap-1.5 rounded px-2 py-1 ${panel === "files" ? "bg-card2 text-soft" : "hover:text-soft"}`}><Icon name="folder" size={12} />File explorer</button>
         <button onClick={() => setComposer(!composer)} className={`flex items-center gap-1.5 rounded px-2 py-1 ${composer ? "bg-card2 text-soft" : "hover:text-soft"}`}><Icon name="pencil" size={12} />Rich input <kbd className="text-dim">⌘J</kbd></button>

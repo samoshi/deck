@@ -45,6 +45,10 @@ app.whenReady().then(async () => {
   if (checkout.data !== 'git checkout INI-1234-context-bar\r') throw Error('Branch chip did not check out the branch in the shell');
   await click('Split right');
   if (await visiblePanes() !== 2) throw Error('Split did not show two panes');
+  // A split is a sibling tab rather than a pane hidden in one row, so the pair
+  // shows in the sidebar under a group of its own.
+  const groupHeaders = () => run(`[...document.querySelectorAll('aside[aria-label="Sessions"] button[aria-label*="group, "]')].map(button => button.getAttribute('aria-label'))`);
+  if (!(await groupHeaders()).some((label) => label.endsWith('2 tabs'))) throw Error('Split did not group the two tabs in the sidebar');
   await screenshot('split');
   await run(`(() => {
     const panes = [...document.querySelectorAll('.xterm')].filter(element => element.offsetWidth > 0);
@@ -89,6 +93,10 @@ app.whenReady().then(async () => {
   await chord(`key:'ArrowLeft',code:'ArrowLeft',metaKey:true,shiftKey:true`);
   await wait(500);
   if (await visiblePanes() !== 3) throw Error('⌘⇧← did not open a third pane');
+  // Splitting a tab that is already grouped nests: the new pair gets a subgroup
+  // inside the first group, which keeps all three tabs under one header.
+  const nested = await groupHeaders();
+  if (nested.length !== 2 || !nested.some((label) => label.endsWith('3 tabs'))) throw Error('Splitting inside a group did not nest a subgroup under it: ' + nested.join(' | '));
   const placement = await run(`(() => {
     const target = window.splitFrom.getBoundingClientRect();
     const focused = [...document.querySelectorAll('.xterm')].find(element => element.offsetWidth > 0 && element.contains(document.activeElement));
