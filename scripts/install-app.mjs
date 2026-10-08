@@ -13,13 +13,35 @@ if (!built) {
 }
 
 const target = "/Applications/Deck.app";
-const running = execSync(`pgrep -f '${target}/Contents/MacOS/Deck' || true`).toString().trim() !== "";
 const run = (cmd) => execSync(cmd, { stdio: "inherit" });
 
+// pgrep never matches a bundle LaunchServices started, so asking it whether
+// Deck is up reports "no" and the swap deletes the app out from under itself.
+const deckIsRunning = () =>
+  execFileSync("osascript", ["-e", 'application "Deck" is running']).toString().trim() === "true";
+
+// Installing from a terminal inside the app being replaced kills this very
+// shell halfway through, leaving no app in /Applications at all.
+const ancestry = () => {
+  const lines = [];
+  for (let pid = process.ppid, depth = 0; pid > 1 && depth < 12; depth++) {
+    const [parent, command] = execSync(`ps -o ppid=,args= -p ${pid}`).toString().trim().split(/\s+(.*)/);
+    lines.push(command ?? "");
+    pid = Number(parent);
+  }
+  return lines;
+};
+if (ancestry().some((command) => command.startsWith(`${target}/Contents/MacOS/`))) {
+  console.error(`Refusing to replace ${target} from a terminal running inside it.`);
+  console.error("Quit Deck and run this again from Terminal.app, or run it from the Deck Dev build.");
+  process.exit(1);
+}
+
+const running = deckIsRunning();
 if (running) {
   execFileSync("osascript", ["-e", 'tell application "Deck" to quit']);
   // Give it a moment to release its port and PTY socket before the swap.
-  execSync("for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -f 'Deck.app/Contents/MacOS/Deck' >/dev/null || break; sleep 0.5; done");
+  for (let waited = 0; waited < 20 && deckIsRunning(); waited++) execSync("sleep 0.5");
 }
 
 if (existsSync(target)) rmSync(target, { recursive: true, force: true });
