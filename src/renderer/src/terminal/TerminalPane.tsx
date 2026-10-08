@@ -67,17 +67,24 @@ export function TerminalPane({ termId, cwd, busy, active, focused = active, onTi
     term.loadAddon(new WebLinksAddon((_event, url) => window.open(url)));
     term.open(host);
     term.attachCustomKeyEventHandler((event) => {
-      // Cmd+Backspace clears the line, as in Terminal.app and iTerm2; xterm would send a single delete.
-      if (event.type === "keydown" && event.metaKey && event.key === "Backspace") {
-        window.deck.term.input(termId, "\x15");
+      // xterm bails out of its own keydown handling, preventDefault included,
+      // as soon as this returns false, so anything handled here has to stop the
+      // browser editing the hidden textarea itself.
+      const handled = (data: string) => {
+        event.preventDefault();
+        window.deck.term.input(termId, data);
         return false;
-      }
+      };
+      // Cmd+Backspace clears the line, as in Terminal.app and iTerm2; xterm would
+      // send a single delete. End-of-line first, because readline's ^U only kills
+      // backwards from the cursor and the whole line is what was asked for.
+      if (event.type === "keydown" && event.metaKey && event.key === "Backspace") return handled("\x05\x15");
+      // Cmd+C interrupts like Ctrl+C. It costs nothing to give up as a copy
+      // because a selection reaches the clipboard on its own, below.
+      if (event.type === "keydown" && event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && event.code === "KeyC") return handled("\x03");
       // macOptionIsMeta turns every Option combo into ESC+key, but non-US layouts
       // type symbols such as @ { } [ ] | with Option. Send those as text.
-      if (event.type === "keydown" && event.altKey && !event.metaKey && !event.ctrlKey && /^[!-\/:-@\[-`{-~]$/.test(event.key)) {
-        window.deck.term.input(termId, event.key);
-        return false;
-      }
+      if (event.type === "keydown" && event.altKey && !event.metaKey && !event.ctrlKey && /^[!-\/:-@\[-`{-~]$/.test(event.key)) return handled(event.key);
       return !((event.metaKey && !event.shiftKey && !event.altKey && /^Digit[1-9]$/.test(event.code)) || boundChords.current.has(chordOf(event) ?? ""));
     });
 
@@ -148,6 +155,20 @@ export function TerminalPane({ termId, cwd, busy, active, focused = active, onTi
       if (resized) term.write("", () => { if (!disposed && host.clientWidth > 0) { fit.fit(); claimSize(); } });
     }).catch((error) => { if (!disposed) term.writeln(`\r\nCould not restore terminal: ${String(error)}`); });
 
+    // Copy on select: letting go of a selection puts it on the clipboard, which
+    // is what leaves Cmd+C free to interrupt. Debounced, because a drag moves
+    // the selection on every pointer event and only where it stops matters.
+    let copyAt: ReturnType<typeof setTimeout> | undefined;
+    const onSelection = term.onSelectionChange(() => {
+      clearTimeout(copyAt);
+      copyAt = setTimeout(() => {
+        const selected = term.getSelection();
+        // Writing rejects while the document is unfocused, which is exactly
+        // when a half-finished selection is not worth copying anyway.
+        if (selected) void navigator.clipboard.writeText(selected).catch(() => {});
+      }, 60);
+    });
+
     // Reclaim the pty on every reveal too: another pane may have resized it
     // meanwhile, and xterm only reports a resize when its own grid changed.
     const observer = new ResizeObserver(() => {
@@ -162,6 +183,8 @@ export function TerminalPane({ termId, cwd, busy, active, focused = active, onTi
       clearTimeout(claim);
       document.removeEventListener("visibilitychange", onVisibility);
       observer.disconnect();
+      clearTimeout(copyAt);
+      onSelection.dispose();
       offData();
       onInput.dispose();
       onTitleChange.dispose();
