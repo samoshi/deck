@@ -77,7 +77,7 @@ One per client or company. Each workspace has its own tracker connection, GitHub
 
 Inside one workspace, a **layer** is an exclusive set of tabs: `Current work`, `Personal`, `AI tools`. Switching a layer shows its tabs and hides the rest, so the sidebar stays the length of what you are doing rather than the length of the day. Layers live in the strip under the sidebar search; click to switch, <kbd>⌘⌥⇧↑</kbd> / <kbd>⌘⌥⇧↓</kbd> to step, ⌘K (`Layer: …`) to jump. Double-click a pill to rename it, right-click for a colour, drag a tab onto one to move it there.
 
-Within a layer, a **group** is a named run of tabs that folds into a single header carrying its count: right-click a tab to start one, drag tabs onto the header to fill it, click the header to collapse. Collapsing hides the rows, never the terminals; they keep running, <kbd>⌘1</kbd>–<kbd>⌘9</kbd> still reaches them, and a collapsed group shows a badge when an agent inside it wants something.
+Within a layer, a **group** is a named run of tabs that folds into a single header carrying its count. Drag one tab onto the middle of another to group the pair, the way browser tabs stack; drop along a row's top or bottom edge instead and it just reorders. Splitting makes a group too: see below. Groups take a colour as they are made, drawn as a rail down their tabs and a tint behind the header. Click the header to collapse. Collapsing hides the rows, never the terminals; they keep running, <kbd>⌘1</kbd>–<kbd>⌘9</kbd> still reaches them, and a collapsed group shows a badge when an agent inside it wants something.
 
 Layers and groups belong to their workspace, so each client gets its own set, and a tab moved to another workspace arrives in that workspace's first layer.
 
@@ -89,7 +89,7 @@ Opt-in, off by default. Once enabled in **Settings → General**, Deck starts a 
 
 ### Themes and plugins
 
-Five built-in themes, live custom JSON themes, and local plugins that contribute themes, commands, agent prompts and Markdown panels. See the [extension guide](docs/extensions.md) and the [starter plugin](examples/plugins/workspace-kit).
+Five built-in themes, live custom JSON themes, and local plugins that contribute themes, commands, agent prompts and Markdown panels. A theme dresses the terminal as well as the app: the ANSI colours are read off the same palette the UI uses, so switching theme recolours everything at once rather than leaving the terminal on a palette of its own. Naming a colour under `terminal` in a custom theme overrides what the palette would give. See the [extension guide](docs/extensions.md) and the [starter plugin](examples/plugins/workspace-kit).
 
 ## Install
 
@@ -128,10 +128,10 @@ Install and authenticate [`claude`](https://docs.anthropic.com/en/docs/claude-co
 | --- | --- |
 | <kbd>⌥ Space</kbd> | Summon or hide Deck |
 | <kbd>⌘K</kbd> | Search sessions, history, commands, settings, themes and repositories |
-| <kbd>⌘T</kbd> / <kbd>⌘W</kbd> | New / close terminal |
+| <kbd>⌘N</kbd> / <kbd>⌘W</kbd> | New / close terminal. A new tab opens in the focused tab's layer and group |
 | <kbd>⌘⇧T</kbd> | Reopen the last closed tab |
-| <kbd>⌘⇧N</kbd> | New tab running the default agent |
-| <kbd>⌘N</kbd> | New window |
+| <kbd>⌘T</kbd> | New tab running the default agent |
+| <kbd>⌘⇧N</kbd> | New window |
 | <kbd>⌘1</kbd>–<kbd>⌘9</kbd> | Switch terminal |
 | <kbd>⌘B</kbd> | Toggle sidebar |
 | <kbd>⌘⌥1</kbd> <kbd>⌘⌥2</kbd> <kbd>⌘⌥3</kbd> <kbd>⌘⌥4</kbd> | Terminal / Board / Agent / Reviews |
@@ -142,10 +142,16 @@ Install and authenticate [`claude`](https://docs.anthropic.com/en/docs/claude-co
 | <kbd>⌃⌘↑</kbd> <kbd>⌃⌘↓</kbd> <kbd>⌃⌘←</kbd> <kbd>⌃⌘→</kbd> | Focus the pane that way |
 | <kbd>⌘Z</kbd> | Zoom the focused pane |
 | <kbd>⌘F</kbd> | Find in terminal |
+| <kbd>⌘⌫</kbd> | Clear the whole line |
+| <kbd>⌘C</kbd> | Cancel, as ⌃C does. Selecting text copies it, so ⌘C never has to |
 | <kbd>⌘J</kbd> | Toggle multiline input |
 | <kbd>⌘⇧Enter</kbd> | Toggle Zen view |
 | <kbd>⌘⇧P</kbd> | Toggle Presentation view |
 | <kbd>Esc</kbd> | Exit Zen / Presentation from the terminal |
+
+A split opens a **sibling tab**, not a pane buried inside the row you split from. Both show in the sidebar, grouped together under a header named after the tab you split, so a split is something you can name, collapse, colour and drag like any other group. Split again from inside that group and the new pair gets a subgroup one level deeper; nesting stops there, so a third split joins the subgroup it was made from rather than being refused.
+
+Selecting terminal text copies it as soon as you let go, so there is no copy keystroke to reach for and <kbd>⌘C</kbd> is free to interrupt the running program the way <kbd>⌃C</kbd> does. <kbd>⌘⌫</kbd> clears the whole line.
 
 Splits follow WezTerm: ⌘⇧ and an arrow opens a shell that way, ⌘⌥ and an arrow opens the default agent, ⌃⌘ and an arrow moves focus, and ⌘Z zooms the focused pane and back. Drag pane dividers to resize; arrow keys resize a focused divider and double-click resets it. Every pane but the focused one is dimmed. Presentation controls adjust text size and switch sessions, and exiting restores your split layout.
 
