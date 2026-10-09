@@ -27,6 +27,7 @@ import type { AskEvent, AskResult } from "../main/agentTurn.js";
 import type { ReviewDraft, ReviewPr } from "../main/review.js";
 import type { PrInbox } from "../main/prInbox.js";
 import type { AgentSession } from "../main/sessions.js";
+import type { CanvasFrame } from "../main/canvas.js";
 import type { DeckSettings, RememberedTab } from "../shared/settings.js";
 
 const api = {
@@ -118,6 +119,7 @@ const api = {
     sync: (): Promise<BoardCache | undefined> => ipcRenderer.invoke("board:sync"),
     move: (key: string, column: string): Promise<BoardCache> =>
       ipcRenderer.invoke("board:move", key, column),
+    assignToMe: (key: string): Promise<BoardCache> => ipcRenderer.invoke("board:assignToMe", key),
     onChanged: (cb: (b: BoardCache | undefined) => void): (() => void) => {
       const listener = (_e: unknown, b: BoardCache | undefined) => cb(b);
       ipcRenderer.on("board:changed", listener);
@@ -202,6 +204,19 @@ const api = {
       const listener = (_e: unknown, repo: string, number: number, drafts: ReviewDraft[]) => cb(repo, number, drafts);
       ipcRenderer.on("review:drafts", listener);
       return () => ipcRenderer.removeListener("review:drafts", listener);
+    },
+  },
+  canvas: {
+    /** The drawings an agent posted for this terminal, oldest first. */
+    get: (termId: string): Promise<CanvasFrame[]> => ipcRenderer.invoke("canvas:get", termId),
+    clear: (termId: string): Promise<CanvasFrame[]> => ipcRenderer.invoke("canvas:clear", termId),
+    remove: (termId: string, id: string): Promise<CanvasFrame[]> => ipcRenderer.invoke("canvas:remove", termId, id),
+    /** Ticks or unticks the markdown task item on that source line of the frame. */
+    toggleTask: (termId: string, id: string, line: number): Promise<CanvasFrame[]> => ipcRenderer.invoke("canvas:toggleTask", termId, id, line),
+    onChanged: (cb: (termId: string, frames: CanvasFrame[]) => void): (() => void) => {
+      const listener = (_e: unknown, termId: string, frames: CanvasFrame[]) => cb(termId, frames);
+      ipcRenderer.on("canvas:changed", listener);
+      return () => ipcRenderer.removeListener("canvas:changed", listener);
     },
   },
   hotkey: {

@@ -1,7 +1,7 @@
 import type { PaneDirection } from "./layout.js";
 
 export type TerminalAction =
-  | "find" | "clear" | "export" | "files" | "changes" | "focus" | "composer" | "pane-zoom"
+  | "find" | "clear" | "export" | "files" | "changes" | "canvas" | "focus" | "composer" | "pane-zoom"
   | `split-${PaneDirection}`;
 const EVENT = "deck:terminal-action";
 export function terminalAction(action: TerminalAction): void {
