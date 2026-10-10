@@ -16,5 +16,10 @@ export function useGitSummary(cwd?: string) {
 }
 
 export function shortPath(cwd?: string): string {
-  return cwd?.replace(/^\/(?:Users|home)\/[^/]+/, "~") ?? "~";
+  if (!cwd) return "~";
+  // On Windows, folders inside WSL arrive as \\wsl.localhost\<distro>\...;
+  // show them the way the shell in the tab would.
+  const wsl = /^\\\\wsl(?:\.localhost|\$)\\[^\\]+(.*)$/i.exec(cwd);
+  const posix = wsl ? wsl[1].replace(/\\/g, "/") || "/" : cwd;
+  return posix.replace(/^\/(?:Users|home)\/[^/]+/, "~");
 }

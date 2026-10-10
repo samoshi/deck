@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { SearchHit } from "../../../main/indexer.js";
 import type { GithubHit, RepoDir } from "../../../main/providers.js";
 import { isMac } from "../../../shared/keybinds.js";
+import { shortPath } from "../lib/useGitSummary.js";
 import { useTabs } from "../store.js";
 import { usePaletteActions, type PaletteGroup, type PaletteItem } from "./paletteActions.js";
 
@@ -65,7 +66,7 @@ export function SearchOverlay({ onClose, onPreview, onView, onSettings, onSideba
       const position = tabs.indexOf(tab);
       return {
         icon: tab.agent ? "✳" : "❯", iconColor: "text-mut", title: tab.customTitle || tab.title,
-        meta: [tab.cwd?.replace(/^\/Users\/[^/]+/, "~").replace(/^\\\\wsl\.localhost\\[^\\]+\\home\\[^\\]+/i, "~"), position < 9 && (isMac ? `⌘${position + 1}` : `Ctrl+Shift+${position + 1}`)].filter(Boolean).join(" · "),
+        meta: [tab.cwd && shortPath(tab.cwd), position < 9 && (isMac ? `⌘${position + 1}` : `Ctrl+Shift+${position + 1}`)].filter(Boolean).join(" · "),
         open: () => { focusTab(tab.termId); onView("terminal"); },
       };
     }) });

@@ -12,7 +12,7 @@ import { Icon, isIconName, type IconName } from "../board/icons.js";
 import { useSessionSuggestions } from "./useSessionSuggestions.js";
 import { useReviewQueue } from "../lib/reviews.js";
 import { useSettings } from "../lib/useSettings.js";
-import { formatChord, resolveKeybinds } from "../../../shared/keybinds.js";
+import { formatChord, isMac, resolveKeybinds } from "../../../shared/keybinds.js";
 import { LayerStrip, colorStyle } from "./LayerStrip.js";
 import { layerColors, layerOf, type TabGroup } from "../../../shared/settings.js";
 import { useAttentionCount } from "../agents/attention.js";
@@ -94,7 +94,7 @@ function SessionRow({ tab, session, index, indent = 0, groupColor, onGroupWith, 
         </div>
         {waiting && tone && <div className={`mt-1 text-[10px] ${tone.text}`}>{statusLabels[session.status]}</div>}
       </div>
-      <span className="self-start pt-0.5 text-[10px] text-dim group-hover:hidden">{tab.paused ? "paused" : index < 9 ? `⌘${index + 1}` : ""}</span>
+      <span className="self-start pt-0.5 text-[10px] text-dim group-hover:hidden">{tab.paused ? "paused" : index < 9 ? (isMac ? `⌘${index + 1}` : formatChord(`Ctrl+Shift+Digit${index + 1}`)) : ""}</span>
       {dropZone === "into" && <div aria-hidden className="pointer-events-none absolute inset-0 rounded-md border-2 border-accent/70 bg-accent/10" />}
       {tab.paused && <div aria-hidden className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-bg/60 opacity-0 backdrop-blur-[1px] transition-opacity duration-150 group-hover:opacity-100">
         <span className="flex items-center gap-1.5 rounded-full border border-edge3 bg-overlay px-3 py-1 text-[11px] text-soft shadow-lg"><Icon name="play" size={10} />Resume</span>
@@ -449,7 +449,7 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
         </div>
         <button aria-label={`Continue ${lastSession.title || agentLabels[lastSession.agent]}`} onClick={() => void resume(lastSession)} className="mt-3 flex w-full min-w-0 items-center gap-2 text-left">
           <SessionIcon agent={lastSession.agent} />
-          <span className="min-w-0 flex-1"><span className="block truncate text-xs text-soft" title={lastSession.title || lastSession.cwd}>{lastSession.title || lastSession.cwd.split("/").pop()}</span><span className="mt-0.5 block truncate text-[10px] text-dim">{agentLabels[lastSession.agent]} · {Math.floor((Date.now() - lastSession.updated_at) / 60_000) < 1 ? "Just now" : `${Math.floor((Date.now() - lastSession.updated_at) / 60_000)}m ago`}</span></span>
+          <span className="min-w-0 flex-1"><span className="block truncate text-xs text-soft" title={lastSession.title || lastSession.cwd}>{lastSession.title || lastSession.cwd.split(/[\\/]/).pop()}</span><span className="mt-0.5 block truncate text-[10px] text-dim">{agentLabels[lastSession.agent]} · {Math.floor((Date.now() - lastSession.updated_at) / 60_000) < 1 ? "Just now" : `${Math.floor((Date.now() - lastSession.updated_at) / 60_000)}m ago`}</span></span>
           <span className="text-mut">↗</span>
         </button>
         <div className="mt-3 flex items-center gap-2 text-[10px] text-dim">
@@ -457,14 +457,14 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
           <button onClick={() => onView("search")} className="ml-auto hover:text-soft">Search history</button>
         </div>
         {showMore && recent.slice(1).map((session) => <div key={session.session_id} className="mt-2 flex items-center gap-2 border-t border-edge pt-2">
-          <button onClick={() => void resume(session)} className="min-w-0 flex-1 text-left"><span className="block truncate text-[11px] text-body" title={session.title || session.cwd}>{session.title || session.cwd.split("/").pop()}</span><span className="block truncate text-[10px] text-dim">{agentLabels[session.agent]} · {shortPath(session.cwd)}</span></button>
+          <button onClick={() => void resume(session)} className="min-w-0 flex-1 text-left"><span className="block truncate text-[11px] text-body" title={session.title || session.cwd}>{session.title || session.cwd.split(/[\\/]/).pop()}</span><span className="block truncate text-[10px] text-dim">{agentLabels[session.agent]} · {shortPath(session.cwd)}</span></button>
           <button aria-label={`Dismiss ${session.title || agentLabels[session.agent]}`} onClick={() => dismissSessions([session.session_id])} className="text-dim hover:text-soft"><Icon name="x" size={11} /></button>
         </div>)}
       </section>}
       {searchResults.length > 0 && <div className="px-4 pb-1 pt-4 text-[10px] tracking-widest text-dim">OTHER SESSIONS</div>}
       {searchResults.map((session) => <button key={session.session_id} onClick={() => void resume(session)} className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left hover:bg-card">
         <SessionIcon agent={session.agent} />
-        <span className="min-w-0 flex-1"><span className="block truncate text-xs text-body">{session.title || session.cwd.split("/").pop()}</span><span className="block truncate text-[10px] text-dim">{agentLabels[session.agent]} · {shortPath(session.cwd)}</span></span>
+        <span className="min-w-0 flex-1"><span className="block truncate text-xs text-body">{session.title || session.cwd.split(/[\\/]/).pop()}</span><span className="block truncate text-[10px] text-dim">{agentLabels[session.agent]} · {shortPath(session.cwd)}</span></span>
       </button>)}
       {searching && !visibleTabs.length && !searchResults.length && <div className="p-4 text-xs text-dim">No matching sessions</div>}
 
