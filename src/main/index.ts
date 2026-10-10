@@ -206,8 +206,11 @@ function createWindow(role: WindowRole, from?: BrowserWindow, set: string = role
     minHeight: 480,
     show: false,
     backgroundColor: "#0c0c0e",
-    titleBarStyle: "hiddenInset",
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
     trafficLightPosition: { x: 14, y: 14 },
+    // Windows and Linux draw their caption buttons over the titlebar's right
+    // end instead; the renderer pads that end clear of them.
+    ...(process.platform === "darwin" ? {} : { titleBarOverlay: { color: "#00000000", symbolColor: "#a1a1aa", height: 43 } }),
     webPreferences: {
       preload: path.join(import.meta.dirname, "../preload/index.mjs"),
       // ESM preload scripts require an unsandboxed renderer.

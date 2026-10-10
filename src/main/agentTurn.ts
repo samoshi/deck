@@ -3,6 +3,7 @@ import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { markInternalSession } from "./sessions.js";
+import { agentProcess, viaWsl, loginShell } from "./platform.js";
 
 const exec = promisify(execFile);
 
@@ -61,7 +62,7 @@ const resolvedBins = new Map<Agent, Promise<string>>();
 function agentBin(agent: Agent): Promise<string> {
   let resolved = resolvedBins.get(agent);
   if (!resolved) {
-    resolved = exec(process.env.SHELL ?? "/bin/zsh", ["-lc", `command -v ${agent}`], { timeout: 10_000 })
+    resolved = exec(...loginShell(`command -v ${agent}`), { timeout: 10_000, windowsHide: true })
       .then(({ stdout }) => stdout.trim().split("\n").pop() || agent).catch(() => agent);
     resolvedBins.set(agent, resolved);
   }
@@ -135,8 +136,10 @@ async function run(args: string[], onEvent: OnEvent, agent: Agent, cwd: string, 
   return new Promise((resolve) => {
     // stdin is closed, not piped: claude waits three seconds for piped input
     // before giving up on it.
-    const child = spawn(bin, args, {
-      cwd,
+    const [file, argv] = agentProcess(bin, args, cwd);
+    const child = spawn(file, argv, {
+      cwd: viaWsl ? undefined : cwd,
+      windowsHide: true,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });

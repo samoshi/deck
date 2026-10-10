@@ -1,7 +1,7 @@
-import os from "node:os";
 import path from "node:path";
 import { getSettings } from "./settings.js";
 import { listSessions, type AgentSession } from "./sessions.js";
+import { homeDir } from "./platform.js";
 
 // Decides what the agent page's model may be told: which sessions, their
 // transcripts, the issue board and the PR inbox. Every outbound path asks here.
@@ -16,7 +16,7 @@ export function setCurrentProject(root: string | undefined): void {
 
 function expand(directory: string): string {
   const trimmed = directory.trim();
-  return trimmed.startsWith("~") ? path.join(os.homedir(), trimmed.slice(1)) : trimmed;
+  return trimmed.startsWith("~") ? path.join(homeDir(), trimmed.slice(1)) : trimmed;
 }
 
 /** Whether cwd is root or sits inside it, compared by path segment. */

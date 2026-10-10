@@ -2,7 +2,7 @@ import { useExtensions } from "../extensions/ExtensionProvider.js";
 import { useDisplayMode } from "../chrome/DisplayMode.js";
 import { useTerminalAppearance } from "../lib/useTerminalAppearance.js";
 import { useSettings } from "../lib/useSettings.js";
-import { chordOf, resolveKeybinds } from "../../../shared/keybinds.js";
+import { chordOf, isMac, primaryHeld, resolveKeybinds } from "../../../shared/keybinds.js";
 import { onTerminalAction } from "./actions.js";
 import { ContextBar } from "./ContextBar.js";
 import { trackTypedInput } from "../../../shared/tips.js";
@@ -78,10 +78,26 @@ export function TerminalPane({ termId, cwd, busy, active, focused = active, onTi
       // Cmd+Backspace clears the line, as in Terminal.app and iTerm2; xterm would
       // send a single delete. End-of-line first, because readline's ^U only kills
       // backwards from the cursor and the whole line is what was asked for.
-      if (event.type === "keydown" && event.metaKey && event.key === "Backspace") return handled("\x05\x15");
+      if (event.type === "keydown" && primaryHeld(event) && event.key === "Backspace") return handled("\x05\x15");
       // Cmd+C interrupts like Ctrl+C. It costs nothing to give up as a copy
       // because a selection reaches the clipboard on its own, below.
       if (event.type === "keydown" && event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && event.code === "KeyC") return handled("\x03");
+      // Off macOS, Ctrl+C and Ctrl+V are the copy and paste keys, so they act
+      // as both, the way Windows Terminal does: Ctrl+C copies while text is
+      // selected and interrupts otherwise; Ctrl+V pastes rather than sending ^V.
+      if (!isMac && event.type === "keydown" && event.ctrlKey && !event.altKey && !event.metaKey) {
+        if (event.code === "KeyC" && term.hasSelection()) {
+          event.preventDefault();
+          void navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+          term.clearSelection();
+          return false;
+        }
+        if (event.code === "KeyV") {
+          event.preventDefault();
+          void navigator.clipboard.readText().then((text) => text && term.paste(text)).catch(() => {});
+          return false;
+        }
+      }
       // Terminals send CR for Enter and Shift+Enter alike, so agents cannot tell
       // them apart. ESC+CR is the sequence claude's /terminal-setup installs for
       // editors, and what iTerm2, WezTerm, Ghostty, Kitty and Warp send natively.
@@ -89,7 +105,7 @@ export function TerminalPane({ termId, cwd, busy, active, focused = active, onTi
       // macOptionIsMeta turns every Option combo into ESC+key, but non-US layouts
       // type symbols such as @ { } [ ] | with Option. Send those as text.
       if (event.type === "keydown" && event.altKey && !event.metaKey && !event.ctrlKey && /^[!-\/:-@\[-`{-~]$/.test(event.key)) return handled(event.key);
-      return !((event.metaKey && !event.shiftKey && !event.altKey && /^Digit[1-9]$/.test(event.code)) || boundChords.current.has(chordOf(event) ?? ""));
+      return !((primaryHeld(event) && (isMac ? !event.shiftKey : true) && !event.altKey && /^Digit[1-9]$/.test(event.code)) || boundChords.current.has(chordOf(event) ?? ""));
     });
 
     try {

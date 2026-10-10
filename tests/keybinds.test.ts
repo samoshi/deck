@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Defaults and labels follow the host OS; these cases are the macOS ones.
+vi.hoisted(() => Object.defineProperty(process, "platform", { value: "darwin" }));
 import { acceleratorOf, chordOf, defaultKeybinds, formatAccelerator, formatChord, matchKeybind, resolveKeybinds } from "../src/shared/keybinds.js";
 
 const press = (over: Partial<Parameters<typeof chordOf>[0]>) => ({ key: "", code: "", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...over });

@@ -17,6 +17,64 @@ export type KeybindCommand =
 
 export type Keybinds = Record<KeybindCommand, string>;
 
+/** The OS this runs on, from the main process or a renderer alike. */
+export const platform: "darwin" | "win32" | "linux" =
+  typeof process !== "undefined" && typeof process.platform === "string"
+    ? (process.platform as "darwin" | "win32" | "linux")
+    : /Windows/.test(navigator.userAgent) ? "win32" : /Mac/.test(navigator.userAgent) ? "darwin" : "linux";
+
+export const isMac = platform === "darwin";
+
+/** Off macOS there is no ⌘: Ctrl+letter belongs to the shell, so app
+ *  shortcuts take Ctrl+Shift the way Windows Terminal and WezTerm do, and the
+ *  splits and pane moves follow WezTerm's arrows. */
+const otherDefaults: Partial<Keybinds> = {
+  search: "Ctrl+Shift+K",
+  settings: "Ctrl+,",
+  shortcuts: "Ctrl+/",
+  sidebar: "Ctrl+Shift+B",
+  "window.new": "Ctrl+Shift+N",
+  "view.terminal": "Ctrl+Alt+Digit1",
+  "view.board": "Ctrl+Alt+Digit2",
+  "view.agent": "Ctrl+Alt+Digit3",
+  "view.reviews": "Ctrl+Alt+Digit4",
+  zen: "Ctrl+Shift+Enter",
+  presentation: "Ctrl+Shift+P",
+  "workspace.next": "Ctrl+Shift+]",
+  "workspace.prev": "Ctrl+Shift+[",
+  "layer.next": "Ctrl+Alt+Shift+ArrowDown",
+  "layer.prev": "Ctrl+Alt+Shift+ArrowUp",
+  "tab.new": "Ctrl+Shift+T",
+  "tab.newAgent": "Ctrl+Shift+A",
+  "tab.close": "Ctrl+Shift+W",
+  "tab.reopen": "Ctrl+Alt+Shift+T",
+  "split.up": "Ctrl+Shift+ArrowUp",
+  "split.down": "Ctrl+Shift+ArrowDown",
+  "split.left": "Ctrl+Shift+ArrowLeft",
+  "split.right": "Ctrl+Shift+ArrowRight",
+  "splitAgent.up": "Alt+ArrowUp",
+  "splitAgent.down": "Alt+ArrowDown",
+  "splitAgent.left": "Alt+ArrowLeft",
+  "splitAgent.right": "Alt+ArrowRight",
+  "pane.up": "Ctrl+ArrowUp",
+  "pane.down": "Ctrl+ArrowDown",
+  "pane.left": "Ctrl+ArrowLeft",
+  "pane.right": "Ctrl+ArrowRight",
+  "pane.zoom": "Ctrl+Shift+Z",
+  find: "Ctrl+Shift+F",
+  composer: "Ctrl+Shift+J",
+  changes: "Ctrl+Shift+G",
+  canvas: "Ctrl+Shift+E",
+  "font.increase": "Ctrl+=",
+  "font.decrease": "Ctrl+-",
+  "font.reset": "Ctrl+Digit0",
+};
+
+/** The modifier the hard-wired chords (⌘1–9, ⌘⌫, ⌘⏎) use: ⌘ on a Mac, Ctrl+Shift elsewhere. */
+export function primaryHeld(event: Pick<KeyPress, "metaKey" | "ctrlKey" | "shiftKey">): boolean {
+  return isMac ? event.metaKey : event.ctrlKey && event.shiftKey && !event.metaKey;
+}
+
 export interface KeybindInfo {
   id: KeybindCommand;
   label: string;
@@ -69,6 +127,8 @@ export const keybindInfos: KeybindInfo[] = [
   { id: "font.reset", label: "Reset terminal text size", group: "Terminal", default: "Meta+Digit0" },
 ];
 
+if (!isMac) for (const info of keybindInfos) info.default = otherDefaults[info.id] ?? info.default;
+
 export const defaultKeybinds = Object.fromEntries(keybindInfos.map((info) => [info.id, info.default])) as Keybinds;
 
 /** Fills gaps in a stored override map with the defaults. */
@@ -110,8 +170,11 @@ export function acceleratorOf(chord: string): string | undefined {
   return parts.length > 1 ? parts.join("+") : undefined;
 }
 
-/** "Meta+Shift+Enter" as "⌘⇧⏎" for display. */
+const words: Record<string, string> = { Meta: "Win", Escape: "Esc", Backspace: "Backspace", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→" };
+
+/** "Meta+Shift+Enter" as "⌘⇧⏎" for display; "Ctrl+Shift+T" stays spelled out off macOS. */
 export function formatChord(chord: string): string {
+  if (!isMac) return chord.split("+").map((part) => words[part] ?? part.replace(/^Digit/, "")).join("+");
   return chord.split("+").map((part) => symbols[part] ?? part.replace(/^Digit/, "")).join("");
 }
 
@@ -120,5 +183,6 @@ const acceleratorSymbols: Record<string, string> = { CommandOrControl: "⌘", Co
 /** "CommandOrControl+Shift+Space" as "⌘⇧space" for display. The summon hotkey
  *  is stored as an accelerator rather than a chord, so it formats from here. */
 export function formatAccelerator(accelerator: string): string {
+  if (!isMac) return accelerator.replace(/CommandOrControl|CmdOrCtrl/g, "Ctrl").replace("Control", "Ctrl");
   return accelerator.split("+").map((part) => acceleratorSymbols[part] ?? symbols[part] ?? part).join("");
 }

@@ -1,6 +1,7 @@
 import { promptTitle, sessionKey, type Agent } from "../shared/agents.js";
 import { kvGet, kvSet, openDb } from "./db.js";
 import type { RememberedTab } from "../shared/settings.js";
+import { toWindowsPath } from "./platform.js";
 
 // Registry of Claude Code and Codex sessions, fed by hook callbacks. Sessions
 // started outside deck are tracked too — they just carry no term_id.
@@ -234,11 +235,12 @@ export function applyHook(payload: HookPayload, termId: string | null, agent: Ag
   ).run({
     id,
     agent,
-    cwd: payload.cwd ?? "",
+    // Hooks run inside WSL on Windows and report Linux paths.
+    cwd: payload.cwd ? toWindowsPath(payload.cwd) : "",
     status,
     event: payload.hook_event_name,
     termId,
-    transcript: payload.transcript_path ?? null,
+    transcript: payload.transcript_path ? toWindowsPath(payload.transcript_path) : null,
     issueKey: linked,
     workspace: termId ? (termWorkspaces.get(termId) ?? null) : null,
     now,

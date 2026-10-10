@@ -1,13 +1,13 @@
 import { watch, type FSWatcher } from "chokidar";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { promptTitle, sessionKey, type Agent } from "../shared/agents.js";
 import { openDb } from "./db.js";
 import { parseTranscriptLine, type TranscriptMetadata, type TranscriptMessage } from "./transcripts.js";
+import { homeDir, toWindowsPath, viaWsl } from "./platform.js";
 
-const PROJECTS_DIR = path.join(os.homedir(), ".claude", "projects");
-export const CODEX_HOME = process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex");
+const PROJECTS_DIR = path.join(homeDir(), ".claude", "projects");
+export const CODEX_HOME = process.env.CODEX_HOME ?? path.join(homeDir(), ".codex");
 const CODEX_DIRS = [path.join(CODEX_HOME, "sessions"), path.join(CODEX_HOME, "archived_sessions")];
 let watcher: FSWatcher | undefined;
 let indexing = Promise.resolve();
@@ -74,7 +74,7 @@ export async function indexFile(filePath: string, agent: Agent): Promise<void> {
           started_at = MIN(COALESCE(conv_sessions.started_at, excluded.started_at), excluded.started_at),
           last_at = MAX(COALESCE(conv_sessions.last_at, 0), excluded.last_at)`)
         .run({ id, agent, project: agent === "codex" ? path.basename(meta.cwd ?? "Codex") : meta.project,
-          cwd: meta.cwd ?? null, title: title ?? (promptTitle(rows.find((r) => r.role === "user")?.text ?? "") || null),
+          cwd: meta.cwd ? toWindowsPath(meta.cwd) : null, title: title ?? (promptTitle(rows.find((r) => r.role === "user")?.text ?? "") || null),
           summary: title ?? null, first: times.length ? Math.min(...times) : stat.mtimeMs,
           last: times.length ? Math.max(...times) : stat.mtimeMs });
     }
@@ -127,7 +127,14 @@ export function startIndexer(): void {
       if (scanned % 25 === 0 || scanned === files.length) setProgress({ scanned, total: files.length, done: scanned === files.length });
     });
   }
-  watcher = watch(roots, { ignoreInitial: true, awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 200 } });
+  watcher = watch(roots, {
+    ignoreInitial: true,
+    awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 200 },
+    // Native watching fails over \\wsl.localhost (EISDIR from the 9P share),
+    // so on Windows the WSL transcripts are polled; subagent traffic is skipped
+    // there as listTranscripts skips it, to keep the polled set small.
+    ...(viaWsl ? { usePolling: true, interval: 2000, ignored: (file: string) => file.split(/[\\/]/).includes("subagents") } : {}),
+  });
   watcher.on("add", (file) => void enqueue(file));
   watcher.on("change", (file) => void enqueue(file));
   watcher.on("error", (error) => console.warn("Transcript watcher:", error));

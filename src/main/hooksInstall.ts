@@ -1,8 +1,8 @@
 import type { Agent } from "../shared/agents.js";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { DEFAULT_SERVER_PORT } from "./port.js";
+import { homeDir } from "./platform.js";
 
 // Merges deck's session-tracking hooks into ~/.claude/settings.json, so every
 // Claude Code session on the machine reports lifecycle events to deck. The
@@ -148,7 +148,7 @@ function installSkills(agent: Agent): void {
 const CODEX_EVENTS = ["SessionStart", "UserPromptSubmit", "PermissionRequest", "PreToolUse", "PostToolUse", "Stop", "Interrupt", "SessionEnd"];
 
 function agentHome(agent: Agent): string {
-  return agent === "codex" ? process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex") : path.join(os.homedir(), ".claude");
+  return agent === "codex" ? process.env.CODEX_HOME ?? path.join(homeDir(), ".codex") : path.join(homeDir(), ".claude");
 }
 
 function hooksPath(agent: Agent): string {

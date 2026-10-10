@@ -5,8 +5,12 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/400-italic.css";
 import "@fontsource/jetbrains-mono/700.css";
 import "@fontsource/jetbrains-mono/700-italic.css";
+import { platform } from "../../shared/keybinds.js";
 import App from "./App.js";
 import "./index.css";
+
+// Platform-specific chrome (caption buttons, titlebar padding) keys off this.
+document.documentElement.dataset.platform = platform;
 
 // Load the bundled terminal font before xterm measures cells and caches glyphs.
 void Promise.all([

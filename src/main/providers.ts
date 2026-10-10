@@ -1,10 +1,10 @@
 import { rgPath } from "@vscode/ripgrep";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { getSettings } from "./settings.js";
+import { homeDir } from "./platform.js";
 
 const exec = promisify(execFile);
 
@@ -19,7 +19,7 @@ export interface RepoHit {
 }
 
 function expandHome(p: string): string {
-  return p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p;
+  return p.startsWith("~") ? path.join(homeDir(), p.slice(1)) : p;
 }
 
 export async function searchRepos(query: string): Promise<RepoHit[]> {

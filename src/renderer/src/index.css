@@ -235,6 +235,13 @@ body {
   -webkit-app-region: drag;
   user-select: none;
 }
+
+/* No traffic lights on the left off macOS; the caption buttons sit on the right. */
+html[data-platform="win32"] .drag-region,
+html[data-platform="linux"] .drag-region {
+  padding-left: 12px;
+  padding-right: 150px;
+}
 .drag-region button,
 .drag-region input,
 .no-drag {

@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
-import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { listRepos } from "./providers.js";
+import { homeDir } from "./platform.js";
 
 const exec = promisify(execFile);
 
@@ -32,7 +32,7 @@ export interface LinkedWorktree extends Worktree {
 }
 
 function expandHome(p: string): string {
-  return p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p;
+  return p.startsWith("~") ? path.join(homeDir(), p.slice(1)) : p;
 }
 
 async function git(cwd: string, args: string[]): Promise<string> {

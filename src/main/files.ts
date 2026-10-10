@@ -1,12 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
+import { homeDir } from "./platform.js";
 
 export interface FileEntry { name: string; path: string; directory: boolean }
 export interface LocalFile { text: string; modified: number }
 
 async function withinRoot(root: string, relative = ""): Promise<string> {
-  const expanded = root.startsWith("~") ? path.join(os.homedir(), root.slice(1)) : root;
+  const expanded = root.startsWith("~") ? path.join(homeDir(), root.slice(1)) : root;
   const canonicalRoot = await fs.realpath(expanded);
   const target = await fs.realpath(path.resolve(canonicalRoot, relative));
   const inside = path.relative(canonicalRoot, target);

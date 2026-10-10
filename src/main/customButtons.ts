@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ipcMain, shell } from "electron";
 import { getSettings } from "./settings.js";
+import { loginShell } from "./platform.js";
 
 const exec = promisify(execFile);
 
@@ -25,7 +26,7 @@ export function registerCustomButtons(): void {
     const button = getSettings().customButtons.find((candidate) => candidate.id === id);
     if (!button) return { ok: false, error: "That button is gone from settings" };
     try {
-      const { stdout } = await exec(process.env.SHELL ?? "/bin/zsh", ["-lc", button.command], { timeout: 30_000 });
+      const { stdout } = await exec(...loginShell(button.command), { timeout: 30_000, windowsHide: true });
       if (!button.opensUrl) return { ok: true };
       const url = urlIn(stdout);
       if (!url) return { ok: false, error: `${button.label} printed no address to open` };

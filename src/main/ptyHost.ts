@@ -7,7 +7,8 @@ import type { AgentLaunch } from "../shared/agents.js";
 import net from "node:net";
 import { randomUUID } from "node:crypto";
 import pty, { type IPty } from "node-pty";
-import { readCwds } from "./ptyCwd.js";
+import { viaWsl, toWindowsPath, wslInfo } from "./platform.js";
+import { readCwds, readWslTerms } from "./ptyCwd.js";
 
 export interface TermMeta extends AgentLaunch {
   id: string;
@@ -26,6 +27,8 @@ export interface SpawnRequest extends AgentLaunch {
   shell: string;
   args: string[];
   cwd: string;
+  /** Where the pty itself starts when that differs from cwd (Windows, WSL folders). */
+  ptyCwd?: string;
   env: Record<string, string>;
   command?: string;
   issueKey?: string;
@@ -97,11 +100,11 @@ function create(spawn: SpawnRequest): TermMeta {
     name: "xterm-256color",
     cols: 80,
     rows: 24,
-    cwd: spawn.cwd,
+    cwd: spawn.ptyCwd ?? spawn.cwd,
     env: { ...spawn.env, DECK_TERM_ID: id },
   });
   const shell = spawn.shell.split("/").pop();
-  const meta: TermMeta = { id, cwd: spawn.cwd, foregroundProcess: proc.process, busy: proc.process !== shell, command: spawn.command, issueKey: spawn.issueKey, agent: spawn.agent, sessionId: spawn.sessionId, prompt: spawn.prompt, windowSet: spawn.windowSet, workspace: spawn.workspace };
+  const meta: TermMeta = { id, cwd: spawn.cwd, foregroundProcess: viaWsl ? undefined : proc.process, busy: viaWsl ? false : proc.process !== shell, command: spawn.command, issueKey: spawn.issueKey, agent: spawn.agent, sessionId: spawn.sessionId, prompt: spawn.prompt, windowSet: spawn.windowSet, workspace: spawn.workspace };
   const term: Term = { proc, meta, shell, chunks: [], buffered: 0 };
 
   proc.onData((data) => {
@@ -125,7 +128,34 @@ function create(spawn: SpawnRequest): TermMeta {
 
 // An agent can sit at its welcome screen before its first session hook.
 // Poll the PTY's foreground process even when it produces no output.
-setInterval(() => {
+if (viaWsl) {
+  // Both the foreground and the cwd come from one probe inside WSL; it
+  // shells out, so it runs once a second rather than at the 500ms of the
+  // foreground poll below.
+  const { distro } = wslInfo();
+  let probing = false;
+  setInterval(() => {
+    if (probing || terms.size === 0) return;
+    probing = true;
+    const live = [...terms.values()];
+    void readWslTerms(distro).then((states) => {
+      for (const term of live) {
+        const state = states.get(term.meta.id);
+        if (!state) continue;
+        const cwd = toWindowsPath(state.cwd);
+        if (cwd && cwd !== term.meta.cwd) {
+          term.meta.cwd = cwd;
+          broadcast({ type: "cwd", id: term.meta.id, cwd });
+        }
+        if (state.foreground === term.meta.foregroundProcess) continue;
+        term.shell = state.shell;
+        term.meta.foregroundProcess = state.foreground;
+        term.meta.busy = state.foreground !== state.shell;
+        broadcast({ type: "foreground", meta: term.meta });
+      }
+    }).catch(() => {}).finally(() => (probing = false));
+  }, 1000).unref();
+} else setInterval(() => {
   for (const term of terms.values()) {
     const foregroundProcess = term.proc.process;
     if (foregroundProcess === term.meta.foregroundProcess) continue;
@@ -137,7 +167,7 @@ setInterval(() => {
 
 // Slower than the foreground poll: it shells out, and a cd only matters to
 // the chrome showing the folder, its branch and its diff.
-setInterval(() => {
+if (!viaWsl) setInterval(() => {
   const live = [...terms.values()];
   void readCwds(live.map((term) => term.proc.pid)).then((cwds) => {
     for (const term of live) {

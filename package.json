@@ -15,12 +15,15 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "node scripts/test.mjs",
-    "postinstall": "electron-rebuild -f -w better-sqlite3 && node scripts/brand-dev-electron.mjs",
+    "setup:win": "npm ci --ignore-scripts && node node_modules/electron/install.js && node node_modules/esbuild/install.js && node scripts/rebuild-native.mjs",
+    "postinstall": "node scripts/rebuild-native.mjs && node scripts/brand-dev-electron.mjs",
     "test:ui": "npm run build && node scripts/ui-smoke.mjs",
     "test:pty": "npm run build && node scripts/pty-smoke.mjs",
     "demo:gif": "node scripts/readme-gif.mjs",
     "dist": "electron-vite build && electron-builder --mac --publish never",
-    "install:app": "electron-vite build && electron-builder --mac dir && node scripts/install-app.mjs"
+    "dist:win": "electron-vite build && electron-builder --win -c.npmRebuild=false --publish never",
+    "install:app": "electron-vite build && electron-builder --mac dir && node scripts/install-app.mjs",
+    "install:app:win": "electron-vite build && electron-builder --win dir -c.npmRebuild=false && node scripts/install-app-win.mjs"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.3.0",
@@ -110,6 +113,21 @@
     },
     "dmg": {
       "sign": false
+    },
+    "win": {
+      "icon": "resources/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
     },
     "publish": {
       "provider": "github",

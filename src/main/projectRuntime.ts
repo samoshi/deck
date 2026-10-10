@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { homeDir, viaWsl, loginShell } from "./platform.js";
 
 const exec = promisify(execFile);
 
@@ -19,12 +19,12 @@ export interface ProjectRuntime {
 
 /** Runs a command the way the user's own prompt would, so version managers apply. */
 async function shell(command: string, cwd: string): Promise<string> {
-  const { stdout } = await exec(process.env.SHELL ?? "/bin/zsh", ["-lc", command], { cwd, timeout: 5000 });
+  const { stdout } = await exec(...loginShell(command, cwd), { cwd: viaWsl ? undefined : cwd, timeout: 5000, windowsHide: true });
   return stdout;
 }
 
 function expandHome(p: string): string {
-  return p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p;
+  return p.startsWith("~") ? path.join(homeDir(), p.slice(1)) : p;
 }
 
 const runtimes: { marker: string; label: string; command: string }[] = [

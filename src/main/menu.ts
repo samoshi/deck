@@ -17,6 +17,10 @@ function command(label: string, id: KeybindCommand, keybinds: Keybinds): MenuIte
 }
 
 export function installAppMenu(): void {
+  // Off macOS a menu bar's accelerators (the Edit role's Ctrl+C, Ctrl+V…)
+  // would fight the terminal for keys the shell owns. The renderer binds
+  // every command itself, so there is no menu at all.
+  if (!isMac) return Menu.setApplicationMenu(null);
   const keybinds = resolveKeybinds(getSettings().keybinds);
   const settings = command("Settings…", "settings", keybinds);
   const template: MenuItemConstructorOptions[] = [

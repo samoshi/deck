@@ -1,10 +1,12 @@
 import { agentCommand, sessionAgent, sessionKey, type AgentLaunch } from "../shared/agents.js";
 import { app, BrowserWindow, ipcMain, type WebContents } from "electron";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { expandHome, forwardToWsl, homeDir, viaWsl, terminalProcess } from "./platform.js";
 import { SERVER_PORT } from "./port.js";
 import type { ClientMessage, HostMessage, SpawnRequest, TermMeta as HostTermMeta } from "./ptyHost.js";
 import { clearTermLinks, linkTermToIssue, linkTermToWorkspace, moveTermSessions, placeTerm, registerAgentTerm, endTermSessions, rememberTabs, rememberedTabs, termPlacement, termWorkspace, updateForegroundSession } from "./sessions.js";
@@ -59,17 +61,13 @@ export interface TermReplay {
 // Terminals run in a detached pty host (ptyHost.ts) so they outlive this
 // process: dev watch-restarts, ⌘R and closed windows all just reattach.
 
-function expandHome(p: string): string {
-  return p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p;
-}
-
 function startCwd(requested?: string): string {
   for (const candidate of [requested, getSettings().defaultCwd]) {
     if (!candidate) continue;
     const dir = expandHome(candidate);
     if (fs.existsSync(dir)) return dir;
   }
-  return os.homedir();
+  return homeDir();
 }
 
 export interface TermCreateOptions extends AgentLaunch {
@@ -86,7 +84,6 @@ export interface TermCreateOptions extends AgentLaunch {
 }
 
 function spawnRequest(opts: TermCreateOptions): SpawnRequest {
-  const shell = process.env.SHELL ?? "/bin/zsh";
   const agent = opts.agent ?? (opts.sessionId ? sessionAgent(opts.sessionId) : opts.prompt ? getSettings().defaultAgent : undefined);
   const sessionId = opts.sessionId && agent ? sessionKey(agent, opts.sessionId) : opts.sessionId;
   const command = agent ? agentCommand({ agent, sessionId, prompt: opts.prompt }) : opts.command;
@@ -98,25 +95,29 @@ function spawnRequest(opts: TermCreateOptions): SpawnRequest {
       (entry): entry is [string, string] => !entry[0].startsWith("CLAUDE") && !["CODEX_THREAD_ID", "CODEX_INTERNAL_ORIGINATOR_OVERRIDE", "DECK_TERM_ID"].includes(entry[0]) && entry[1] !== undefined,
     ),
   );
+  const cwd = startCwd(opts.cwd);
   return {
-    shell,
     // A command still runs inside a login shell so PATH and profile apply,
     // and the tab drops back to the prompt when it exits.
-    args: command ? ["-l", "-i", "-c", `${command}; exec ${shell} -l`] : ["-l"],
-    cwd: startCwd(opts.cwd),
-    env: {
+    ...terminalProcess(command, cwd),
+    cwd,
+    // conpty cannot start in a \\wsl.localhost folder; wsl.exe --cd gets
+    // the real one, so the Windows-side start folder only has to exist.
+    ptyCwd: viaWsl && cwd.startsWith("\\\\") ? os.homedir() : undefined,
+    env: forwardToWsl({
       ...cleanEnv,
       // Start from the system baseline like Terminal.app, so the login
       // shell's own profile builds PATH. Inheriting an already-built PATH
       // makes "add if missing" guards in rc files skip their prepends,
       // resolving different binaries than the user's real terminal.
-      PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+      // wsl.exe builds its own PATH from the Linux profile.
+      ...(viaWsl ? {} : { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" }),
       TERM_PROGRAM: "deck",
       COLORTERM: "truecolor",
       // Agent hooks read the port from here, so they report to the deck
       // instance that spawned the terminal and not to another channel's.
       DECK_PORT: String(SERVER_PORT),
-    },
+    }, ["DECK_PORT", "DECK_TERM_ID", "TERM_PROGRAM", "COLORTERM"]),
     command,
     agent,
     sessionId,
@@ -140,7 +141,11 @@ class PtyHostClient {
   private readonly owners = new Map<string, Set<WebContents>>();
   private readonly sequences = new Map<string, number>();
 
-  private readonly socketPath = path.join(app.getPath("userData"), "pty.sock");
+  // Windows has no unix sockets; a named pipe per userData dir keeps the dev
+  // and installed channels apart the same way.
+  private readonly socketPath = process.platform === "win32"
+    ? `\\\\.\\pipe\\deck-pty-${createHash("sha1").update(app.getPath("userData")).digest("hex").slice(0, 12)}`
+    : path.join(app.getPath("userData"), "pty.sock");
   private readonly logPath = path.join(app.getPath("userData"), "pty-host.log");
 
   async request<T extends Reply["type"]>(msg: RequestBody, onReply?: () => void): Promise<Extract<Reply, { type: T }>> {
@@ -199,12 +204,13 @@ class PtyHostClient {
   private spawnHost(reason: string | undefined): void {
     // ECONNREFUSED means the file outlived its host; a new host can't bind
     // over it.
-    if (reason === "ECONNREFUSED") fs.rmSync(this.socketPath, { force: true });
+    if (reason === "ECONNREFUSED" && process.platform !== "win32") fs.rmSync(this.socketPath, { force: true });
     const log = fs.openSync(this.logPath, "a");
     // The Electron binary as plain Node keeps the electron-rebuilt node-pty
     // ABI-compatible; detached so our exit (or SIGKILL) never reaches it.
     const child = spawn(process.execPath, [path.join(import.meta.dirname, "ptyHost.js"), this.socketPath], {
       detached: true,
+      windowsHide: true,
       stdio: ["ignore", log, log],
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
     });

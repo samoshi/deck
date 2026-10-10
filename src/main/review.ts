@@ -1,11 +1,11 @@
 import type { Agent } from "../shared/agents.js";
-import os from "node:os";
 import { newConversation, runTurn, type AskResult, type Conversation, type OnEvent } from "./agentTurn.js";
 import { kvGet, kvSet } from "./db.js";
 import { fileContent, prComments, prDetail, prDiff, type DraftComment } from "./github.js";
 import { schema, str, type Json, type Tool } from "./orchestrator.js";
 import { SERVER_PORT } from "./port.js";
 import { getSettings } from "./settings.js";
+import { homeDir } from "./platform.js";
 
 // The review assistant: one conversation per pull request, living next to the
 // diff instead of in a terminal. It reads the PR through deck and hands
@@ -189,7 +189,7 @@ export function askReview(pr: ReviewPr, question: string, onEvent: OnEvent, agen
   const id = key(pr.repo, pr.number);
   const result = (turns.get(id) ?? Promise.resolve()).then(async () => {
     const outcome = await runTurn({
-      agent, model: getSettings().askModel, systemPrompt: SYSTEM_PROMPT, context: reviewContext(pr), question, cwd: pr.cwd ?? os.homedir(),
+      agent, model: getSettings().askModel, systemPrompt: SYSTEM_PROMPT, context: reviewContext(pr), question, cwd: pr.cwd ?? homeDir(),
       mcp: { name: MCP_SERVER, url: reviewMcpUrl(pr.repo, pr.number), tools: reviewTools(pr.repo, pr.number).map((t) => t.name) },
       conversation: stateFor(pr.repo, pr.number).conversation, onEvent,
     });

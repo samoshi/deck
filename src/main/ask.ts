@@ -2,7 +2,6 @@ import { type Agent } from "../shared/agents.js";
 import { kvGet, kvSet } from "./db.js";
 import { getSettings } from "./settings.js";
 import { boardConfigured, getBoardCache } from "./board/board.js";
-import os from "node:os";
 import { newConversation, runTurn, type AskResult, type Conversation, type OnEvent } from "./agentTurn.js";
 import { lastMessages } from "./indexer.js";
 import { runningFixes } from "./autofix.js";
@@ -11,6 +10,7 @@ import { sharingSummary, canShareBoard, canSharePullRequests, canShareTranscript
 import { attentionReasons, getPrInbox, prsAwaitingReview } from "./prInbox.js";
 import { MCP_URL } from "./server.js";
 import { type AgentSession } from "./sessions.js";
+import { homeDir } from "./platform.js";
 
 // Each turn receives Deck's current session registry, the PR inbox and the
 // same cached issue board shown in the app, plus deck's MCP tools for acting.
@@ -161,7 +161,7 @@ export function askDeck(question: string, onEvent: OnEvent, agent: Agent = getSe
     // Home is a neutral working directory: the question is about sessions,
     // not about whatever repo happens to be open.
     const outcome = await runTurn({
-      agent, model, systemPrompt: SYSTEM_PROMPT, context: askContext(), question, cwd: os.homedir(),
+      agent, model, systemPrompt: SYSTEM_PROMPT, context: askContext(), question, cwd: homeDir(),
       mcp: { name: MCP_SERVER, url: MCP_URL, tools: toolNames() }, conversation: state.conversation, onEvent,
     });
     saveState(outcome.conversation);
