@@ -82,8 +82,8 @@ interface TabStore {
   setTitle: (termId: string, title: string) => void;
   setTabColor: (termId: string, color: string | null) => void;
   renameTab: (termId: string, title: string) => void;
-  /** Reorders a tab to sit where `beforeId` sits; the end of the list without one. */
-  moveTab: (termId: string, beforeId?: string) => void;
+  /** Reorders a tab to sit just before (or after) `targetId`; the end of the list without one. */
+  moveTab: (termId: string, targetId?: string, side?: "before" | "after") => void;
   /** Hands the terminal to another workspace; it leaves this one's tabs without closing. */
   moveTabToWorkspace: (termId: string, workspace: string) => void;
   /** Moves a tab to another layer, leaving whatever group it was in. */
@@ -96,6 +96,8 @@ interface TabStore {
   createGroup: (termIds: string[], opts?: { parent?: string; name?: string }) => Promise<string>;
   /** Starts the terminal behind a paused tab, in its place in the list. */
   resumeTab: (termId: string) => Promise<void>;
+  /** Lists a terminal opened elsewhere (a split) now, rather than when its created event lands. */
+  addCreated: (meta: TermMeta) => void;
   /** Paused tabs still waiting in a layer, by layer id. */
   pausedByLayer: Record<string, number>;
 }
@@ -197,9 +199,10 @@ export function TabProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  useEffect(() => window.deck.term.onCreated((meta) => {
+  const addCreated = useCallback((meta: TermMeta) => {
     setTabs((tabs) => tabs.some((tab) => tab.termId === meta.id) ? tabs : [...tabs, toTab(meta)]);
-  }), []);
+  }, []);
+  useEffect(() => window.deck.term.onCreated(addCreated), [addCreated]);
 
   // Starts the terminal a paused tab stands for, in its own place in the list.
   // The created event may land first, so the real tab is deduped either way.
@@ -288,13 +291,13 @@ export function TabProvider({ children }: { children: ReactNode }) {
 
   // The sidebar only ever shows one layer, so a drop names the tab to land in
   // front of rather than a position in the full list.
-  const moveTab = useCallback((termId: string, beforeId?: string) => {
+  const moveTab = useCallback((termId: string, targetId?: string, side: "before" | "after" = "before") => {
     setTabs((tabs) => {
       const tab = tabs.find((t) => t.termId === termId);
       if (!tab) return tabs;
       const next = tabs.filter((t) => t !== tab);
-      const at = beforeId ? next.findIndex((t) => t.termId === beforeId) : -1;
-      next.splice(at < 0 ? next.length : at, 0, tab);
+      const at = targetId ? next.findIndex((t) => t.termId === targetId) : -1;
+      next.splice(at < 0 ? next.length : side === "after" ? at + 1 : at, 0, tab);
       localStorage.setItem("deck.tab.order", JSON.stringify(next.map((t) => t.termId)));
       return next;
     });
@@ -348,6 +351,10 @@ export function TabProvider({ children }: { children: ReactNode }) {
   const activeCwdNow = tabs.find((tab) => tab.termId === activeId)?.cwd;
   useEffect(() => { void window.deck.sharing.setCurrentProject(activeCwdNow); }, [activeCwdNow]);
 
+  useEffect(() => window.deck.term.onPlaced((termId, { group }) => {
+    setTabs((tabs) => tabs.map((tab) => tab.termId === termId ? { ...tab, groupId: group ?? undefined } : tab));
+  }), []);
+
   useEffect(() => window.deck.term.onBusy((termId, busy) => {
     setTabs((tabs) => tabs.map((tab) => tab.termId === termId ? { ...tab, busy } : tab));
   }), []);
@@ -368,7 +375,9 @@ export function TabProvider({ children }: { children: ReactNode }) {
   // paused tab starts its terminal rather than showing an empty pane.
   const focusTab = useCallback((termId: string) => {
     const tab = tabsRef.current.find((tab) => tab.termId === termId);
-    const layer = layers?.length ? layerOf(tab?.layerId, layers) : undefined;
+    // A tab not listed yet (a split's second terminal, before its created
+    // event lands) has no layer to go to; layerOf would answer the first.
+    const layer = tab && layers?.length ? layerOf(tab.layerId, layers) : undefined;
     if (layer && layer !== activeLayer) void window.deck.updateSettings({ activeLayer: layer });
     if (tab?.paused) { void resumeTab(termId); return; }
     setActiveId(termId);
@@ -418,8 +427,8 @@ export function TabProvider({ children }: { children: ReactNode }) {
   }, {}), [tabs, layers]);
 
   const store = useMemo<TabStore>(
-    () => ({ tabs: layerTabs, allTabs: tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, reopenTabs, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, createGroup, resumeTab, pausedByLayer }),
-    [layerTabs, tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, reopenTabs, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, createGroup, resumeTab, pausedByLayer],
+    () => ({ tabs: layerTabs, allTabs: tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, reopenTabs, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, createGroup, resumeTab, addCreated, pausedByLayer }),
+    [layerTabs, tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, reopenTabs, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, createGroup, resumeTab, addCreated, pausedByLayer],
   );
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }

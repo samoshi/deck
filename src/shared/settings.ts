@@ -191,6 +191,31 @@ export function flattenGroups(groups: TabGroup[]): TabGroup[] {
   });
 }
 
+/** A group holds at least two things, tabs or subgroups. One left with a
+ *  single tab hands it up to the parent group (or out of grouping), one left
+ *  holding a single subgroup lets that subgroup take its place, and an empty
+ *  one goes. Repeats until stable, since dissolving a subgroup can leave its
+ *  parent down to one. `members` is every tab of the workspace, running or
+ *  paused, by the group it sits in. */
+export function pruneGroups(groups: TabGroup[], members: { id: string; group?: string }[]): { groups: TabGroup[]; moves: { id: string; group: string | null }[] } {
+  let kept = groups;
+  const placed = new Map(members.map((member) => [member.id, member.group]));
+  const moves = new Map<string, string | null>();
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const group of kept) {
+      const tabs = [...placed].filter(([, at]) => at === group.id).map(([id]) => id);
+      const children = kept.filter((other) => other.parent === group.id);
+      if (tabs.length + children.length > 1) continue;
+      for (const id of tabs) { placed.set(id, group.parent); moves.set(id, group.parent ?? null); }
+      kept = kept.filter((other) => other.id !== group.id).map((other) => other.parent === group.id ? { ...other, parent: group.parent } : other);
+      changed = true;
+      break;
+    }
+  }
+  return { groups: kept, moves: [...moves].map(([id, group]) => ({ id, group })) };
+}
+
 /** The settings that differ per client or company: which tracker and GitHub
  *  owner deck talks to, where the code lives. Everything else in DeckSettings
  *  is about deck itself and is shared by every workspace. */

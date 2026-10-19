@@ -7,7 +7,8 @@ export type KeybindCommand =
   | "view.terminal" | "view.board" | "view.agent" | "view.reviews"
   | "zen" | "presentation"
   | "workspace.next" | "workspace.prev"
-  | "layer.next" | "layer.prev"
+  | "layer.next" | "layer.prev" | "history"
+  | "tab.toNextLayer" | "tab.toPrevLayer" | "tab.back" | "tab.forward"
   | "tab.new" | "tab.newAgent" | "tab.close" | "tab.reopen" | "tab.next" | "tab.prev"
   | "split.up" | "split.down" | "split.left" | "split.right"
   | "splitAgent.up" | "splitAgent.down" | "splitAgent.left" | "splitAgent.right"
@@ -41,12 +42,17 @@ export const keybindInfos: KeybindInfo[] = [
   // The splits take ⌘⌥ and ⌘⇧ with the arrows; layers sit a tier above them.
   { id: "layer.next", label: "Next layer", group: "Workbench", default: "Meta+Alt+Shift+ArrowDown" },
   { id: "layer.prev", label: "Previous layer", group: "Workbench", default: "Meta+Alt+Shift+ArrowUp" },
+  { id: "history", label: "Tab history", group: "Workbench", default: "Meta+Y" },
   { id: "tab.new", label: "New terminal tab", group: "Terminal", default: "Meta+T" },
   { id: "tab.newAgent", label: "New tab running the default agent", group: "Terminal", default: "Meta+Shift+N" },
   { id: "tab.close", label: "Close the active tab", group: "Terminal", default: "Meta+W" },
   { id: "tab.reopen", label: "Reopen the last closed tab", group: "Terminal", default: "Meta+Shift+T" },
   { id: "tab.next", label: "Next tab", group: "Terminal", default: "Ctrl+Tab" },
   { id: "tab.prev", label: "Previous tab", group: "Terminal", default: "Ctrl+Shift+Tab" },
+  { id: "tab.back", label: "Back to the tab focused before", group: "Terminal", default: "Meta+[" },
+  { id: "tab.forward", label: "Forward to the tab focused after", group: "Terminal", default: "Meta+]" },
+  { id: "tab.toNextLayer", label: "Move the tab to the next layer", group: "Terminal", default: "Meta+Ctrl+Shift+ArrowDown" },
+  { id: "tab.toPrevLayer", label: "Move the tab to the previous layer", group: "Terminal", default: "Meta+Ctrl+Shift+ArrowUp" },
   { id: "split.up", label: "Split up", group: "Terminal", default: "Meta+Shift+ArrowUp" },
   { id: "split.down", label: "Split down", group: "Terminal", default: "Meta+Shift+ArrowDown" },
   { id: "split.left", label: "Split left", group: "Terminal", default: "Meta+Shift+ArrowLeft" },

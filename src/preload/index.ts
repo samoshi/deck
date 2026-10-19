@@ -274,6 +274,12 @@ const api = {
     moveToWorkspace: (id: string, workspace: string): void => ipcRenderer.send("term:workspace", id, workspace),
     /** Moves a terminal between layers and groups. A group of null ungroups it. */
     place: (id: string, placement: { layer?: string; group?: string | null }): void => ipcRenderer.send("term:place", id, placement),
+    /** Main regrouped a tab on its own, when the group it was in dissolved. */
+    onPlaced: (cb: (id: string, placement: { group: string | null }) => void): (() => void) => {
+      const listener = (_e: unknown, id: string, placement: { group: string | null }) => cb(id, placement);
+      ipcRenderer.on("term:placed", listener);
+      return () => ipcRenderer.removeListener("term:placed", listener);
+    },
     /** The tabs this workspace had when deck last ran. */
     remembered: (): Promise<RememberedTab[]> => ipcRenderer.invoke("term:remembered"),
     /** Writes down the workspace's tabs, paused ones included. */

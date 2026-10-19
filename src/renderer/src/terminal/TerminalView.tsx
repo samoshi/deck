@@ -33,7 +33,7 @@ const json = (layouts: PaneLayout[]): string => JSON.stringify(layouts);
 
 export function TerminalView({ visible }: { visible: boolean }) {
   const { mode } = useDisplayMode();
-  const { tabs, allTabs, activeId, ready, newTab, setTitle, setTabColor, focusTab, requestCloseTab, createGroup, setTabGroup, resumeTab } = useTabs();
+  const { tabs, allTabs, activeId, ready, newTab, setTitle, setTabColor, focusTab, requestCloseTab, createGroup, setTabGroup, resumeTab, addCreated } = useTabs();
   const sessions = useAgentSessions();
   const [panel, setPanel] = useState<"changes" | "files" | "canvas">();
   const [filesVisited, setFilesVisited] = useState(false);
@@ -140,7 +140,8 @@ export function TerminalView({ visible }: { visible: boolean }) {
     setUnzoomed(undefined);
     try {
       const group = activeTab ? await splitGroup(activeTab, activeTitle) : undefined;
-      const meta = await window.deck.term.create({ cwd: settings?.newTerminalCwd.split === "default" ? undefined : cwd, agent, group });
+      const meta = await window.deck.term.create({ cwd: settings?.newTerminalCwd.split === "default" ? undefined : cwd, agent, group, layer: activeTab?.layerId });
+      addCreated(meta);
       setLayouts((layouts) => {
         const withoutNew = layouts.filter((layout) => !("termId" in layout && layout.termId === meta.id));
         const found = withoutNew.some((layout) => paneIds(layout).includes(activeId));

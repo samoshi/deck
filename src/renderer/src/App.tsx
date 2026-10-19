@@ -58,7 +58,7 @@ function Shell() {
   const pageRef = useRef<HTMLDivElement>(null);
   useEffect(() => { pageRef.current?.getAnimations().forEach((animation) => { animation.cancel(); animation.play(); }); }, [view]);
   const [preview, setPreview] = useState<{ sessionId: string; query: string }>();
-  const { tabs, focusTab, newTab, requestCloseTab, reopenTab, activeId } = useTabs();
+  const { tabs, focusTab, newTab, requestCloseTab, reopenTab, activeId, moveTabToLayer } = useTabs();
   const settings = useSettings();
   const keybinds = resolveKeybinds(settings?.keybinds);
   // First run sets the summon hotkey up before the workbench is usable.
@@ -159,6 +159,16 @@ function Shell() {
       // One layer: still handled, so the chord never reaches the shell.
       if (next && next.id !== settings?.activeLayer) void window.deck.updateSettings({ activeLayer: next.id });
       setView("terminal");
+    } else if (command === "tab.toNextLayer" || command === "tab.toPrevLayer") {
+      const layers = settings?.layers ?? [];
+      const index = layers.findIndex((layer) => layer.id === settings?.activeLayer);
+      const next = layers[(index + (command === "tab.toNextLayer" ? 1 : -1) + layers.length) % layers.length];
+      // The view follows the tab, as a browser does with a tab moved to another window.
+      if (activeId && next && next.id !== settings?.activeLayer) {
+        moveTabToLayer(activeId, next.id);
+        void window.deck.updateSettings({ activeLayer: next.id }).then(() => focusTab(activeId));
+      }
+      setView("terminal");
     } else if (command === "tab.new" || command === "tab.newAgent") {
       setView("terminal");
       void newTab(command === "tab.newAgent" ? { agent: settings?.defaultAgent } : undefined);
@@ -188,7 +198,7 @@ function Shell() {
       if (next !== appearance.fontSize) void window.deck.updateSettings({ terminalAppearance: { ...appearance, fontSize: next } });
     } else return false;
     return true;
-  }, [view, activeId, newTab, requestCloseTab, reopenTab, tabs, focusTab, settings, toggleSidebar, setView, mode, setMode]);
+  }, [view, activeId, newTab, requestCloseTab, reopenTab, tabs, focusTab, moveTabToLayer, settings, toggleSidebar, setView, mode, setMode]);
 
   useEffect(() => window.deck.onMenuCommand(runCommand), [runCommand]);
 

@@ -7,7 +7,7 @@ vi.mock("../src/main/db.js", () => ({
 }));
 
 const { getSettings, updateSettings } = await import("../src/main/settings.js");
-const { flattenGroups, layerOf, splitPlacement } = await import("../src/shared/settings.js");
+const { flattenGroups, layerOf, pruneGroups, splitPlacement } = await import("../src/shared/settings.js");
 
 describe("layer migration", () => {
   it("gives a workspace saved before layers the one default layer", () => {
@@ -159,5 +159,42 @@ describe("where a split's new tab lands", () => {
 
   it("joins the source's subgroup rather than refusing a deeper split", () => {
     expect(splitPlacement({ id: "split", layer: "work", parent: "repos", name: "Split" })).toEqual({ join: "split" });
+  });
+});
+
+describe("groups that run out of tabs", () => {
+  const repos = { id: "repos", layer: "work", name: "Repos" };
+  const split = { id: "split", layer: "work", parent: "repos", name: "Split" };
+
+  it("keeps a group holding two tabs", () => {
+    expect(pruneGroups([repos], [{ id: "a", group: "repos" }, { id: "b", group: "repos" }])).toEqual({ groups: [repos], moves: [] });
+  });
+
+  it("dissolves a group down to one tab and ungroups that tab", () => {
+    expect(pruneGroups([repos], [{ id: "a", group: "repos" }, { id: "b" }])).toEqual({ groups: [], moves: [{ id: "a", group: null }] });
+  });
+
+  it("drops a group with no tabs left", () => {
+    expect(pruneGroups([repos], [{ id: "b" }])).toEqual({ groups: [], moves: [] });
+  });
+
+  it("hands a split's last tab up to the group it was split from", () => {
+    const members = [{ id: "a", group: "repos" }, { id: "b", group: "repos" }, { id: "c", group: "split" }];
+    expect(pruneGroups([repos, split], members)).toEqual({ groups: [repos], moves: [{ id: "c", group: "repos" }] });
+  });
+
+  it("lets a lone subgroup take its parent's place", () => {
+    const members = [{ id: "c", group: "split" }, { id: "d", group: "split" }];
+    expect(pruneGroups([repos, split], members)).toEqual({ groups: [{ ...split, parent: undefined }], moves: [] });
+  });
+
+  it("folds a one-tab subgroup into its parent, which then holds both tabs", () => {
+    const members = [{ id: "a", group: "repos" }, { id: "c", group: "split" }];
+    expect(pruneGroups([repos, split], members)).toEqual({ groups: [repos], moves: [{ id: "c", group: "repos" }] });
+  });
+
+  it("dissolves a parent left with one tab once its emptied subgroup goes", () => {
+    const members = [{ id: "a", group: "repos" }, { id: "b" }];
+    expect(pruneGroups([repos, split], members)).toEqual({ groups: [], moves: [{ id: "a", group: null }] });
   });
 });

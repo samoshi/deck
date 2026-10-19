@@ -22,8 +22,17 @@ import type { View } from "../App.js";
 
 /** `indent` is how deep the row sits: 0 ungrouped, 1 in a group, 2 in the
  *  subgroup a split makes. */
-function SessionRow({ tab, session, index, indent = 0, groupColor, onGroupWith, onNewGroup, onOpen }: { tab: TermTab; session?: AgentSession; index: number; indent?: number; groupColor?: string; onGroupWith: (dragged: string, target: TermTab) => void; onNewGroup: (termId: string) => void; onOpen: () => void }) {
-  const { activeId, requestCloseTab, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup } = useTabs();
+function SessionRow({ tab, session, index, indent = 0, group, onGroupWith, onPlace, onDrag, onOpen }: {
+  tab: TermTab; session?: AgentSession; index: number; indent?: number;
+  /** The group the row sits in, which is also where a tab dropped beside it lands. */
+  group?: TabGroup;
+  onGroupWith: (dragged: string, target: TermTab) => void;
+  onPlace: (dragged: string, target: TermTab, side: "before" | "after") => void;
+  onDrag: (dragging: TermTab | undefined) => void;
+  onOpen: () => void;
+}) {
+  const { tabs, activeId, requestCloseTab, renameTab, moveTabToWorkspace, moveTabToLayer, setTabGroup } = useTabs();
+  const groupColor = group?.color;
   const { report } = useTips();
   const settings = useSettings();
   const otherWorkspaces = settings?.workspaces.filter((workspace) => workspace.id !== settings.activeWorkspace) ?? [];
@@ -44,13 +53,14 @@ function SessionRow({ tab, session, index, indent = 0, groupColor, onGroupWith, 
     window.addEventListener("mousedown", dismiss);
     return () => window.removeEventListener("mousedown", dismiss);
   }, [menu]);
-  // Browser rule: a drop along a row's edge reorders, a drop on its middle
-  // groups the two tabs. The zone under the cursor drives both the cue and the act.
+  // A plain drop only reorders, landing in the group of the row it lands
+  // beside, so where the line is drawn is where the tab goes. Grouping the two
+  // tabs is the deliberate act, and takes ⌥.
   const [dropZone, setDropZone] = useState<"before" | "into" | "after">();
   const zoneAt = (event: React.DragEvent): "before" | "into" | "after" => {
+    if (event.altKey) return "into";
     const box = event.currentTarget.getBoundingClientRect();
-    const offset = (event.clientY - box.top) / box.height;
-    return offset < 0.3 ? "before" : offset > 0.7 ? "after" : "into";
+    return event.clientY - box.top < box.height / 2 ? "before" : "after";
   };
   const [name, setName] = useState("");
   const cwd = session?.cwd || tab.cwd;
@@ -61,21 +71,27 @@ function SessionRow({ tab, session, index, indent = 0, groupColor, onGroupWith, 
   const waiting = session && ["needs_input", "needs_review"].includes(session.status);
   const tone = session ? statusTones[session.status] : undefined;
   const oscColor = tone ? undefined : tab.tabColor;
-  return <div draggable={!renaming} onDragStart={(event) => { event.dataTransfer.setData("text/deck-tab", tab.termId); event.dataTransfer.effectAllowed = "move"; }}
+  const landing = dropZone === "before" || dropZone === "after";
+  return <div draggable={!renaming} onDragStart={(event) => { event.dataTransfer.setData("text/deck-tab", tab.termId); event.dataTransfer.effectAllowed = "move"; onDrag(tab); }}
+    onDragEnd={() => onDrag(undefined)}
     onDragOver={(event) => { if (event.dataTransfer.types.includes("text/deck-tab")) { event.preventDefault(); setDropZone(zoneAt(event)); } }}
     onDragLeave={() => setDropZone(undefined)}
     onDrop={(event) => {
       event.preventDefault();
       const zone = zoneAt(event);
       setDropZone(undefined);
+      onDrag(undefined);
       const id = event.dataTransfer.getData("text/deck-tab");
       if (!id || id === tab.termId) return;
-      if (zone === "into") { onGroupWith(id, tab); return; }
-      moveTab(id, zone === "before" ? tab.termId : undefined);
-      setTabGroup(id, tab.groupId ?? null);
+      if (zone === "into") onGroupWith(id, tab);
+      else onPlace(id, tab, zone);
     }}
     style={groupColor ? { boxShadow: `inset 2px 0 0 var(--color-${groupColor})` } : undefined}
-    className={`relative border-b px-2 py-2 ${indent === 2 ? "pl-7" : indent === 1 ? "pl-4" : ""} ${dropZone === "before" ? "border-t border-t-accent" : dropZone === "after" ? "border-b-accent" : "border-edge/80"}`}>
+    className={`relative border-b border-edge/80 px-2 py-2 ${indent === 2 ? "pl-7" : indent === 1 ? "pl-4" : ""}`}>
+    {landing && <div aria-hidden className={`pointer-events-none absolute left-1 right-1 z-20 flex items-center ${dropZone === "before" ? "-top-px" : "-bottom-px"}`}>
+      <span className="h-0.5 flex-1 rounded-full" style={{ background: `var(--color-${groupColor ?? "mut"})` }} />
+      <span className="ml-1 rounded-full border border-edge3 bg-overlay px-1.5 text-[9px] leading-4 text-soft">{group ? `in ${group.name}` : "ungrouped"}</span>
+    </div>}
     <div role="button" tabIndex={0} aria-label={`${title}${agent ? ` (${agentLabels[agent]})` : ""}${tab.paused ? " (paused)" : ""}`} aria-current={active ? "page" : undefined}
       onClick={() => { report({ action: "tab-click" }); onOpen(); }} onKeyDown={(event) => { if (event.target === event.currentTarget && event.key === "Enter") onOpen(); }}
       onDoubleClick={() => { setName(title); setRenaming(true); }}
@@ -95,7 +111,9 @@ function SessionRow({ tab, session, index, indent = 0, groupColor, onGroupWith, 
         {waiting && tone && <div className={`mt-1 text-[10px] ${tone.text}`}>{statusLabels[session.status]}</div>}
       </div>
       <span className="self-start pt-0.5 text-[10px] text-dim group-hover:hidden">{tab.paused ? "paused" : index < 9 ? `⌘${index + 1}` : ""}</span>
-      {dropZone === "into" && <div aria-hidden className="pointer-events-none absolute inset-0 rounded-md border-2 border-accent/70 bg-accent/10" />}
+      {dropZone === "into" && <div aria-hidden className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md border-2 border-accent/70 bg-accent/10">
+        <span className="rounded-full border border-edge3 bg-overlay px-2 text-[10px] text-soft">{group ? `Join ${group.name}` : "Group with this tab"}</span>
+      </div>}
       {tab.paused && <div aria-hidden className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-bg/60 opacity-0 backdrop-blur-[1px] transition-opacity duration-150 group-hover:opacity-100">
         <span className="flex items-center gap-1.5 rounded-full border border-edge3 bg-overlay px-3 py-1 text-[11px] text-soft shadow-lg"><Icon name="play" size={10} />Resume</span>
       </div>}
@@ -104,10 +122,11 @@ function SessionRow({ tab, session, index, indent = 0, groupColor, onGroupWith, 
     </div>
     {menu && <div ref={menuRef} role="menu" aria-label={`${title} options`} className="absolute left-3 right-3 z-50 mt-1 rounded-lg border border-edge3 bg-overlay p-1 shadow-xl">
       <button className="menu-item" onClick={() => { setMenu(false); setName(title); setRenaming(true); }}>Rename</button>
-      {(groups.length > 0 || tab.groupId) && <div className="px-2 pb-0.5 pt-1.5 text-[10px] tracking-widest text-dim">GROUP</div>}
+      {(groups.length > 0 || tab.groupId || tabs.length > 1) && <div className="px-2 pb-0.5 pt-1.5 text-[10px] tracking-widest text-dim">GROUP</div>}
       {groups.filter((group) => group.id !== tab.groupId).map((group) => <button key={group.id} className="menu-item" onClick={() => { setMenu(false); setTabGroup(tab.termId, group.id); }}>Add to {groupPath(group)}</button>)}
       {tab.groupId && <button className="menu-item" onClick={() => { setMenu(false); setTabGroup(tab.termId, null); }}>Remove from group</button>}
-      <button className="menu-item" onClick={() => { setMenu(false); onNewGroup(tab.termId); }}>New group with this tab</button>
+      {tabs.filter((other) => other.termId !== tab.termId && (!tab.groupId || other.groupId !== tab.groupId)).slice(0, 8).map((other) => <button key={other.termId} className="menu-item"
+        onClick={() => { setMenu(false); onGroupWith(tab.termId, other); }}>Group with {other.customTitle || other.title}</button>)}
       {!active && !tab.paused && <button className="menu-item" onClick={() => { setMenu(false); adoptPane({ termId: tab.termId, towards: "right" }); }}>Split beside the current tab</button>}
       {otherLayers.length > 0 && <div className="px-2 pb-0.5 pt-1.5 text-[10px] tracking-widest text-dim">LAYER</div>}
       {otherLayers.map((layer) => <button key={layer.id} className="menu-item" onClick={() => { setMenu(false); moveTabToLayer(tab.termId, layer.id); }}>Move to {layer.name}</button>)}
@@ -300,14 +319,51 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
   const saveGroups = (next: TabGroup[]) => void window.deck.updateSettings({
     groups: [...(settings?.groups ?? []).filter((group) => group.layer !== activeLayer), ...next],
   });
-  const newGroup = (...termIds: string[]) => void createGroup(termIds);
-
-  // Dropping a tab onto another joins that one's group, or starts a group
-  // holding the pair when it has none.
+  /** The tab being dragged, so the sidebar can offer the ungroup strip. */
+  const [dragging, setDragging] = useState<TermTab>();
+  // A row dragged across a layer switch unmounts mid-drag and never sees its
+  // own dragend, so the end of any drag clears it.
+  useEffect(() => {
+    if (!dragging) return;
+    const clear = () => setDragging(undefined);
+    window.addEventListener("dragend", clear, true);
+    window.addEventListener("drop", clear, true);
+    return () => { window.removeEventListener("dragend", clear, true); window.removeEventListener("drop", clear, true); };
+  }, [dragging]);
+  // A tab can be dragged in from another layer (a layer pill switches the
+  // sidebar under a held drag), so a drop first brings it into this one.
+  const intoThisLayer = (termId: string) => {
+    const tab = allTabs.find((other) => other.termId === termId);
+    if (tab && layers.length && layerOf(tab.layerId, layers) !== activeLayer) moveTabToLayer(termId, activeLayer);
+  };
+  const place = (dragged: string, target: TermTab, side: "before" | "after") => {
+    intoThisLayer(dragged);
+    moveTab(dragged, target.termId, side);
+    setTabGroup(dragged, target.groupId ?? null);
+  };
+  // Dropping a tab onto another with ⌥ joins that one's group, or starts a
+  // group holding the pair when it has none.
   const groupWith = (dragged: string, target: TermTab) => {
-    moveTab(dragged, target.termId);
+    intoThisLayer(dragged);
+    moveTab(dragged, target.termId, "after");
     if (target.groupId) setTabGroup(dragged, target.groupId);
-    else newGroup(target.termId, dragged);
+    else void createGroup([target.termId, dragged]);
+  };
+  const joinGroup = (dragged: string, group: TabGroup) => {
+    intoThisLayer(dragged);
+    setTabGroup(dragged, group.id);
+  };
+  // Out of the group, and placed just below where the group ends so it does
+  // not jump to the top of the list for having been its first member.
+  const ungroupTab = (termId: string) => {
+    const tab = allTabs.find((other) => other.termId === termId);
+    const group = tab?.groupId ? groupById.get(tab.groupId) : undefined;
+    const top = group?.parent ? groupById.get(group.parent) ?? group : group;
+    const inTop = (other: TermTab) => other.groupId === top?.id || groupById.get(other.groupId ?? "")?.parent === top?.id;
+    const last = tabs.filter((other) => other.termId !== termId && inTop(other)).at(-1);
+    intoThisLayer(termId);
+    if (last) moveTab(termId, last.termId, "after");
+    setTabGroup(termId, null);
   };
   // Ungrouping a group takes its subgroups with it: they exist to sit inside
   // it, so leaving them behind would orphan rows the user meant to flatten.
@@ -364,7 +420,7 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
   const membersOf = (group: TabGroup) => visibleTabs.filter((tab) => tab.groupId === group.id);
   const childrenOf = (group: TabGroup) => layerGroups.filter((other) => other.parent === group.id);
   const row = (tab: TermTab, group?: TabGroup, indent = 0) => <SessionRow key={tab.termId} tab={tab} session={byTerm.get(tab.termId)}
-    index={tabs.indexOf(tab)} indent={indent} groupColor={group?.color} onGroupWith={groupWith} onNewGroup={newGroup}
+    index={tabs.indexOf(tab)} indent={indent} group={group} onGroupWith={groupWith} onPlace={place} onDrag={setDragging}
     onOpen={() => { focusTab(tab.termId); onView("terminal"); }} />;
   const groupRows = (group: TabGroup, depth: number) => {
     drawn.add(group.id);
@@ -379,7 +435,7 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
       onChange={(next) => saveGroups(layerGroups.map((other) => other.id === group.id ? next : other))}
       onDelete={() => ungroup(group)}
       onClose={() => closeGroup(group, held)}
-      onDropTab={(termId) => setTabGroup(termId, group.id)} />);
+      onDropTab={(termId) => joinGroup(termId, group)} />);
     if (group.collapsed) return;
     for (const member of members) rows.push(row(member, group, depth + 1));
     for (const child of children) groupRows(child, depth + 1);
@@ -413,7 +469,6 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
       {menu && <div className="absolute right-2 top-9 z-50 w-48 rounded-lg border border-edge3 bg-overlay p-1 shadow-xl">
         <button aria-label="New terminal" onClick={() => void launch()} className="menu-item"><Icon name="terminal" />New terminal<span className="ml-auto text-dim">{formatChord(keybinds["tab.new"])}</span></button>
         {(["claude", "codex"] as const).map((agent) => <button key={agent} aria-label={`New ${agentLabels[agent]}`} onClick={() => void launch(agent)} className="menu-item"><Icon name="sparkle" />New {agentLabels[agent]}{agent === defaultAgent && <span className="ml-auto text-dim">{formatChord(keybinds["tab.newAgent"])}</span>}</button>)}
-        <button onClick={() => { setMenu(false); newGroup(); }} className="menu-item"><Icon name="layers" />New group</button>
         <div className="my-1 border-t border-edge2" />
         <button disabled={!tabs.length} onClick={closeAllTabs} className="menu-item disabled:opacity-40"><Icon name="x" />Close all tabs</button>
         <button onClick={() => { setMenu(false); setArchive(true); }} className="menu-item"><Icon name="terminal" />Session archive</button>
@@ -442,6 +497,13 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
         </button>
       </section>}
       {rows}
+      {dragging?.groupId && <div role="region" aria-label="Remove from group"
+        onDragOver={(event) => { if (event.dataTransfer.types.includes("text/deck-tab")) { event.preventDefault(); event.currentTarget.dataset.over = "1"; } }}
+        onDragLeave={(event) => { delete event.currentTarget.dataset.over; }}
+        onDrop={(event) => { event.preventDefault(); setDragging(undefined); const termId = event.dataTransfer.getData("text/deck-tab"); if (termId) ungroupTab(termId); }}
+        className="mx-3 my-2 rounded-md border border-dashed border-edge3 py-3 text-center text-[11px] text-mut data-[over]:border-accent data-[over]:bg-accent/10 data-[over]:text-soft">
+        Drop here to remove from group
+      </div>}
       {!searching && lastSession && <section aria-label="Session suggestions" className="mx-3 my-3 rounded-lg border border-edge2 bg-card/50 p-3">
         <div className="flex items-center gap-2">
           <span className="min-w-0 flex-1 text-[11px] font-medium text-mut">Continue your last session</span>

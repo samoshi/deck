@@ -16,7 +16,7 @@ export function LayerStrip({ layers, activeLayer, counts, paused, waiting, onSwi
   /** How many of those are waiting paused, by layer id. */
   paused: Record<string, number>;
   onSwitch: (id: string) => void;
-  /** A tab dragged onto a layer pill moves there. */
+  /** A tab dropped on a layer pill moves there; held over one, the pill opens its layer. */
   onDropTab: (termId: string, layer: string) => void;
   onChange: (layers: TabLayer[], activeLayer: string) => void;
   /** Agents waiting on the user in each layer, by layer id. */
@@ -30,6 +30,17 @@ export function LayerStrip({ layers, activeLayer, counts, paused, waiting, onSwi
   const [name, setName] = useState("");
   const [over, setOver] = useState<string>();
   const menuRef = useRef<HTMLDivElement>(null);
+  // Holding a dragged tab over another layer's pill opens that layer, so the
+  // tab can be dropped at an exact spot in it instead of at its end.
+  const springTimer = useRef<ReturnType<typeof setTimeout>>();
+  const springFor = useRef<string>();
+  const spring = (id?: string): void => {
+    if (springFor.current === id) return;
+    clearTimeout(springTimer.current);
+    springFor.current = id;
+    if (id && id !== activeLayer) springTimer.current = setTimeout(() => onSwitch(id), 600);
+  };
+  useEffect(() => () => clearTimeout(springTimer.current), []);
   useEffect(() => {
     if (!menu) return;
     const dismiss = (event: MouseEvent) => { if (!menuRef.current?.contains(event.target as Node)) setMenu(undefined); };
@@ -71,9 +82,9 @@ export function LayerStrip({ layers, activeLayer, counts, paused, waiting, onSwi
               onClick={() => onSwitch(layer.id)}
               onDoubleClick={() => { setName(layer.name); setRenaming(layer.id); }}
               onContextMenu={(event) => { event.preventDefault(); setMenu(layer.id); }}
-              onDragOver={(event) => { if (event.dataTransfer.types.includes("text/deck-tab")) { event.preventDefault(); setOver(layer.id); } }}
-              onDragLeave={() => setOver((id) => id === layer.id ? undefined : id)}
-              onDrop={(event) => { event.preventDefault(); setOver(undefined); const termId = event.dataTransfer.getData("text/deck-tab"); if (termId) onDropTab(termId, layer.id); }}
+              onDragOver={(event) => { if (event.dataTransfer.types.includes("text/deck-tab")) { event.preventDefault(); setOver(layer.id); spring(layer.id); } }}
+              onDragLeave={() => { setOver((id) => id === layer.id ? undefined : id); spring(undefined); }}
+              onDrop={(event) => { event.preventDefault(); setOver(undefined); spring(undefined); const termId = event.dataTransfer.getData("text/deck-tab"); if (termId) onDropTab(termId, layer.id); }}
               style={layer.color && (active || over === layer.id) ? {
                 background: `color-mix(in srgb, var(--color-${layer.color}) 18%, transparent)`,
                 borderColor: `var(--color-${layer.color})`,

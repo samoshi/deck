@@ -8,8 +8,8 @@ import path from "node:path";
 import { SERVER_PORT } from "./port.js";
 import type { ClientMessage, HostMessage, SpawnRequest, TermMeta as HostTermMeta } from "./ptyHost.js";
 import { clearTermLinks, linkTermToIssue, linkTermToWorkspace, moveTermSessions, placeTerm, registerAgentTerm, endTermSessions, rememberTabs, rememberedTabs, termPlacement, termWorkspace, updateForegroundSession } from "./sessions.js";
-import { getSettings } from "./settings.js";
-import { workspaceOf, type RememberedTab } from "../shared/settings.js";
+import { getSettings, updateSettings } from "./settings.js";
+import { pruneGroups, workspaceOf, type RememberedTab } from "../shared/settings.js";
 import { LegacyAgentDetector } from "./legacyAgentDetection.js";
 
 /** The tab set each renderer shows. Every window keeps its own terminals, so
@@ -260,6 +260,7 @@ class PtyHostClient {
       endTermSessions(msg.id);
       this.owners.delete(msg.id);
       for (const cb of exitListeners) cb(msg.id);
+      schedulePrune();
       // Every window lists the tab, not only the ones that displayed it.
       for (const window of BrowserWindow.getAllWindows()) window.webContents.send("term:exit", msg.id, msg.code);
       return;
@@ -275,6 +276,42 @@ class PtyHostClient {
 }
 
 let client: PtyHostClient | undefined;
+
+// Main is the one place that sees every window's terminals, so it is the one
+// that can tell a group is down to a single tab. Debounced because a split
+// writes the group, places its source and opens the second tab in quick
+// succession, and the group must not be judged half way through that.
+let pruneTimer: ReturnType<typeof setTimeout> | undefined;
+function schedulePrune(): void {
+  clearTimeout(pruneTimer);
+  pruneTimer = setTimeout(() => void prune().catch(() => undefined), 500);
+}
+
+async function prune(): Promise<void> {
+  if (!client) return;
+  const settings = getSettings();
+  if (!settings.groups.length) return;
+  const { terms } = await client.request<"list">({ type: "list" });
+  const live = terms.filter((meta) => workspaceOf(termWorkspace(meta.id) ?? meta.workspace, settings.workspaces) === settings.activeWorkspace);
+  const liveIds = new Set(terms.map((meta) => meta.id));
+  const remembered = rememberedTabs()[settings.activeWorkspace] ?? [];
+  const paused = remembered.filter((tab) => !liveIds.has(tab.id));
+  const { groups, moves } = pruneGroups(settings.groups, [
+    ...live.map((meta) => ({ id: meta.id, group: termPlacement(meta.id).group })),
+    ...paused.map((tab) => ({ id: tab.id, group: tab.group })),
+  ]);
+  if (groups.length === settings.groups.length && !moves.length) return;
+  for (const { id, group } of moves) if (liveIds.has(id)) placeTerm(id, { group });
+  const pausedMoves = new Map(moves.map(({ id, group }) => [id, group ?? undefined]));
+  if (paused.some((tab) => pausedMoves.has(tab.id))) {
+    rememberTabs(settings.activeWorkspace, remembered.map((tab) => pausedMoves.has(tab.id) ? { ...tab, group: pausedMoves.get(tab.id) } : tab));
+  }
+  const next = updateSettings({ groups });
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send("settings:changed", next);
+    for (const { id, group } of moves) window.webContents.send("term:placed", id, { group });
+  }
+}
 let stopLegacyDetection: (() => void) | undefined;
 const exitListeners = new Set<(id: string) => void>();
 
@@ -331,22 +368,25 @@ export async function startPtyHost(): Promise<void> {
   ipcMain.on("term:kill", (_e, id: string) => {
     endTermSessions(id);
     client!.send({ type: "kill", id });
+    schedulePrune();
   });
   // The terminal keeps running; it just lists under the other workspace from
   // now on, its sessions with it.
   ipcMain.on("term:workspace", (_e, id: string, workspace: string) => {
     client!.send({ type: "workspace", id, workspace });
     moveTermSessions(id, workspace);
+    schedulePrune();
   });
   // Layers and groups are the renderer's to arrange; main only remembers where
   // each terminal was put, since the tab list is rebuilt from scratch on reload.
   ipcMain.on("term:place", (_e, id: string, placement: { layer?: string; group?: string | null }) => {
     placeTerm(id, placement);
+    schedulePrune();
   });
   // Terminals die with a full quit, so the window also writes down what its
   // tabs were; that is what the next start brings back, paused.
   ipcMain.handle("term:remembered", () => rememberedTabs()[getSettings().activeWorkspace] ?? []);
-  ipcMain.on("term:remember", (_e, tabs: RememberedTab[]) => rememberTabs(getSettings().activeWorkspace, tabs));
+  ipcMain.on("term:remember", (_e, tabs: RememberedTab[]) => { rememberTabs(getSettings().activeWorkspace, tabs); schedulePrune(); });
 }
 
 /** Opens a terminal (optionally running an agent) and tells every window about it. */
