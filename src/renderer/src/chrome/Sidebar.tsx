@@ -478,13 +478,15 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
       <input aria-label="Search tabs" placeholder="Search tabs…" value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-[12px] text-soft outline-none placeholder:text-dim" />
       {settings?.experiments.sessionSweep && <button aria-label="Sweep sessions" title="Sweep: close sessions whose pull requests are merged" onClick={() => setSweepOpen(true)} className="text-mut hover:text-ink"><Icon name="broom" size={14} /></button>}
       <button aria-label="Show sessions needing attention" aria-pressed={filter === "attention"} title="Filter: needs attention" onClick={() => setFilter(filter === "all" ? "attention" : "all")} className={filter === "attention" ? "text-orange" : "text-mut hover:text-ink"}><Icon name="sliders" size={14} /></button>
+      <button aria-label="History" aria-pressed={view === "history"} title={`History (${formatChord(keybinds.history)})`} onClick={() => onView(view === "history" ? "terminal" : "history")}
+        className={view === "history" ? "text-accent" : "text-mut hover:text-ink"}><Icon name="history" size={14} /></button>
       <button aria-label="New session" aria-expanded={menu} title="New session" onClick={() => setMenu(!menu)} className="text-mut hover:text-ink"><Icon name="plus" size={16} /></button>
       {menu && <div className="absolute right-2 top-9 z-50 w-48 rounded-lg border border-edge3 bg-overlay p-1 shadow-xl">
         <button aria-label="New terminal" onClick={() => void launch()} className="menu-item"><Icon name="terminal" />New terminal<span className="ml-auto text-dim">{formatChord(keybinds["tab.new"])}</span></button>
         {(["claude", "codex"] as const).map((agent) => <button key={agent} aria-label={`New ${agentLabels[agent]}`} onClick={() => void launch(agent)} className="menu-item"><Icon name="sparkle" />New {agentLabels[agent]}{agent === defaultAgent && <span className="ml-auto text-dim">{formatChord(keybinds["tab.newAgent"])}</span>}</button>)}
         <div className="my-1 border-t border-edge2" />
         <button disabled={!tabs.length} onClick={closeAllTabs} className="menu-item disabled:opacity-40"><Icon name="x" />Close all tabs</button>
-        <button onClick={() => { setMenu(false); onView("history"); }} className="menu-item"><Icon name="clock" />History<span className="ml-auto text-dim">{formatChord(keybinds.history)}</span></button>
+        <button onClick={() => { setMenu(false); onView("history"); }} className="menu-item"><Icon name="history" />History<span className="ml-auto text-dim">{formatChord(keybinds.history)}</span></button>
         <button onClick={() => { setMenu(false); setArchive(true); }} className="menu-item"><Icon name="terminal" />Session archive</button>
         <button onClick={() => { setMenu(false); setWorktreesOpen(true); }} className="menu-item"><Icon name="layers" />Worktrees</button>
         <button onClick={() => { setMenu(false); onView("settings"); }} className="menu-item"><Icon name="cog" />Settings</button>

@@ -83,7 +83,7 @@ export function HistoryView({ onOpened }: { onOpened: () => void }) {
 
   return <div className="flex min-h-0 flex-1 flex-col font-sans">
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-edge px-5">
-      <Icon name="clock" size={14} className="text-mut" />
+      <Icon name="history" size={14} className="text-mut" />
       <h1 className="text-[13px] font-semibold text-soft">History</h1>
       <div className="ml-4 flex min-w-0 flex-1 items-center gap-2 rounded-md border border-edge2 bg-card px-2 py-1">
         <Icon name="search" size={12} className="text-mut" />

@@ -24,6 +24,8 @@ const paths = {
   checkSquare: "M2.5 2.5h11v11h-11zM5 8l2 2 4-4",
   xSquare: "M2.5 2.5h11v11h-11zM5.5 5.5l5 5M10.5 5.5l-5 5",
   clock: "M8 2.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11zM8 5v3l2 1.5",
+  // Lucide's "history" (ISC licence), scaled from its 24px grid to 16.
+  history: "M2 8a6 6 0 1 0 6-6 6.5 6.5 0 0 0-4.49 1.83L2 5.33M2 2v3.33h3.33M8 4.67V8l2.67 1.33",
   check: "M3 8.5l3 3 7-7",
   x: "M4 4l8 8M12 4l-8 8",
   circle: "M8 2.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11z",
