@@ -2,7 +2,9 @@ import { useExtensions } from "../extensions/ExtensionProvider.js";
 import { useDisplayMode } from "../chrome/DisplayMode.js";
 import { useTerminalAppearance } from "../lib/useTerminalAppearance.js";
 import { useSettings } from "../lib/useSettings.js";
-import { chordOf, resolveKeybinds } from "../../../shared/keybinds.js";
+import { chordOf, primaryModifier, resolveKeybinds } from "../../../shared/keybinds.js";
+import { macEditingInput } from "../../../shared/terminalKeys.js";
+import { isMac, shellArg } from "../../../shared/platform.js";
 import { onTerminalAction } from "./actions.js";
 import { ContextBar } from "./ContextBar.js";
 import { trackTypedInput } from "../../../shared/tips.js";
@@ -78,18 +80,32 @@ export function TerminalPane({ termId, cwd, busy, active, focused = active, onTi
       // Cmd+Backspace clears the line, as in Terminal.app and iTerm2; xterm would
       // send a single delete. End-of-line first, because readline's ^U only kills
       // backwards from the cursor and the whole line is what was asked for.
-      if (event.type === "keydown" && event.metaKey && event.key === "Backspace") return handled("\x05\x15");
+      if (isMac && event.type === "keydown" && event.metaKey && event.key === "Backspace") return handled("\x05\x15");
       // Cmd+C interrupts like Ctrl+C. It costs nothing to give up as a copy
       // because a selection reaches the clipboard on its own, below.
-      if (event.type === "keydown" && event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && event.code === "KeyC") return handled("\x03");
+      if (isMac && event.type === "keydown" && event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && event.code === "KeyC") return handled("\x03");
+      const editing = isMac ? macEditingInput(event) : undefined;
+      if (editing !== undefined) return handled(editing);
       // Terminals send CR for Enter and Shift+Enter alike, so agents cannot tell
       // them apart. ESC+CR is the sequence claude's /terminal-setup installs for
       // editors, and what iTerm2, WezTerm, Ghostty, Kitty and Warp send natively.
       if (event.type === "keydown" && event.key === "Enter" && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) return handled("\x1b\r");
       // macOptionIsMeta turns every Option combo into ESC+key, but non-US layouts
       // type symbols such as @ { } [ ] | with Option. Send those as text.
-      if (event.type === "keydown" && event.altKey && !event.metaKey && !event.ctrlKey && /^[!-\/:-@\[-`{-~]$/.test(event.key)) return handled(event.key);
-      return !((event.metaKey && !event.shiftKey && !event.altKey && /^Digit[1-9]$/.test(event.code)) || boundChords.current.has(chordOf(event) ?? ""));
+      if (isMac && event.type === "keydown" && event.altKey && !event.metaKey && !event.ctrlKey && /^[!-\/:-@\[-`{-~]$/.test(event.key)) return handled(event.key);
+      // Off the Mac, Ctrl+C copies when there is a selection and interrupts
+      // otherwise, and Ctrl+V pastes, as in Windows Terminal. Returning false
+      // leaves the paste to the browser, which hands it to xterm.
+      if (!isMac && event.type === "keydown" && event.ctrlKey && !event.altKey && !event.metaKey) {
+        if (event.code === "KeyC" && (event.shiftKey || term.hasSelection())) {
+          if (term.hasSelection()) void navigator.clipboard.writeText(term.getSelection());
+          term.clearSelection();
+          event.preventDefault();
+          return false;
+        }
+        if (event.code === "KeyV") return false;
+      }
+      return !((primaryModifier(event) && !event.shiftKey && !event.altKey && /^Digit[1-9]$/.test(event.code)) || boundChords.current.has(chordOf(event) ?? ""));
     });
 
     try {
@@ -258,7 +274,7 @@ export function TerminalPane({ termId, cwd, busy, active, focused = active, onTi
     const paths = Array.from(event.dataTransfer.files, (file) => window.deck.term.pathForFile(file)).filter(Boolean);
     if (!paths.length) return;
     onFileDrop?.();
-    const quoted = paths.map((path) => /[^\w./-]/.test(path) ? `'${path.replace(/'/g, "'\\''")}'` : path).join(" ");
+    const quoted = paths.map((path) => shellArg(path)).join(" ");
     window.deck.term.input(termId, `\x1b[200~${quoted} \x1b[201~`);
     setFinding(false);
     termRef.current?.focus();

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { isMac } from "../../../shared/platform.js";
 import { chordOf, defaultKeybinds, formatChord, keybindInfos, resolveKeybinds, type KeybindCommand, type KeybindInfo } from "../../../shared/keybinds.js";
 import { RECORDING_ATTRIBUTE } from "../lib/useKeybinds.js";
 import { useSettings } from "../lib/useSettings.js";
@@ -63,7 +64,7 @@ export function KeybindsSettings() {
               <h3 className="text-sm font-semibold text-ink">{group}</h3>
               {group === "Workbench" && customized && <button onClick={() => update({})} className="ml-auto text-[11px] text-mut hover:text-soft">reset all</button>}
             </div>
-            <p className="mt-1 text-xs leading-5 text-mut">Click a shortcut and press the new keys. Shortcuts need ⌘, ⌃ or ⌥ so they never clash with typing.</p>
+            <p className="mt-1 text-xs leading-5 text-mut">Click a shortcut and press the new keys. Shortcuts need {isMac ? "⌘, ⌃ or ⌥" : "Ctrl or Alt"} so they never clash with typing.</p>
             <table className="mt-4 w-full text-xs"><tbody>{keybindInfos.filter((info) => info.group === group).map(row)}</tbody></table>
           </section>
         ))}

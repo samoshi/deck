@@ -1,6 +1,8 @@
+import { terminalEnv } from "./ptyEnv.js";
 import { agentCommand, sessionAgent, sessionKey, type AgentLaunch } from "../shared/agents.js";
 import { app, BrowserWindow, ipcMain, type WebContents } from "electron";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -12,6 +14,8 @@ import { getSettings, updateSettings } from "./settings.js";
 import { closeMissing, noteTabs, recordClose, recordOpen } from "./history.js";
 import { pruneGroups, workspaceOf, type RememberedTab } from "../shared/settings.js";
 import { LegacyAgentDetector } from "./legacyAgentDetection.js";
+import { shellArgs, userShell } from "./userShell.js";
+import { isWindows } from "../shared/platform.js";
 
 /** The tab set each renderer shows. Every window keeps its own terminals, so
  *  each one gets its own set; the summon panel is the exception, sharing the
@@ -87,31 +91,22 @@ export interface TermCreateOptions extends AgentLaunch {
 }
 
 function spawnRequest(opts: TermCreateOptions): SpawnRequest {
-  const shell = process.env.SHELL ?? "/bin/zsh";
   const agent = opts.agent ?? (opts.sessionId ? sessionAgent(opts.sessionId) : opts.prompt ? getSettings().defaultAgent : undefined);
   const sessionId = opts.sessionId && agent ? sessionKey(agent, opts.sessionId) : opts.sessionId;
   const command = agent ? agentCommand({ agent, sessionId, prompt: opts.prompt }) : opts.command;
-  // Deck itself may have been launched from inside a Claude Code session
-  // (dev mode); its CLAUDE* markers would make claude in this terminal
-  // think it's a child session and disable transcript saving.
-  const cleanEnv = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] => !entry[0].startsWith("CLAUDE") && !["CODEX_THREAD_ID", "CODEX_INTERNAL_ORIGINATOR_OVERRIDE", "DECK_TERM_ID"].includes(entry[0]) && entry[1] !== undefined,
-    ),
-  );
   return {
-    shell,
-    // A command still runs inside a login shell so PATH and profile apply,
-    // and the tab drops back to the prompt when it exits.
-    args: command ? ["-l", "-i", "-c", `${command}; exec ${shell} -l`] : ["-l"],
+    shell: userShell,
+    // The tab drops back to the prompt when the command exits.
+    args: shellArgs(command),
     cwd: startCwd(opts.cwd),
     env: {
-      ...cleanEnv,
+      ...terminalEnv(process.env),
       // Start from the system baseline like Terminal.app, so the login
       // shell's own profile builds PATH. Inheriting an already-built PATH
       // makes "add if missing" guards in rc files skip their prepends,
       // resolving different binaries than the user's real terminal.
-      PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+      // Windows has no login shell; its PATH comes whole from the registry.
+      ...(isWindows ? {} : { PATH: "/usr/bin:/bin:/usr/sbin:/sbin" }),
       TERM_PROGRAM: "deck",
       COLORTERM: "truecolor",
       // Agent hooks read the port from here, so they report to the deck
@@ -141,7 +136,11 @@ class PtyHostClient {
   private readonly owners = new Map<string, Set<WebContents>>();
   private readonly sequences = new Map<string, number>();
 
-  private readonly socketPath = path.join(app.getPath("userData"), "pty.sock");
+  // Windows has no unix sockets. Pipe names are machine-wide, so the pipe is
+  // named after the userData folder, which is per user and per channel.
+  private readonly socketPath = isWindows
+    ? `\\\\.\\pipe\\deck-pty-${createHash("sha256").update(app.getPath("userData")).digest("hex").slice(0, 16)}`
+    : path.join(app.getPath("userData"), "pty.sock");
   private readonly logPath = path.join(app.getPath("userData"), "pty-host.log");
 
   async request<T extends Reply["type"]>(msg: RequestBody, onReply?: () => void): Promise<Extract<Reply, { type: T }>> {
@@ -200,12 +199,13 @@ class PtyHostClient {
   private spawnHost(reason: string | undefined): void {
     // ECONNREFUSED means the file outlived its host; a new host can't bind
     // over it.
-    if (reason === "ECONNREFUSED") fs.rmSync(this.socketPath, { force: true });
+    if (reason === "ECONNREFUSED" && !isWindows) fs.rmSync(this.socketPath, { force: true });
     const log = fs.openSync(this.logPath, "a");
     // The Electron binary as plain Node keeps the electron-rebuilt node-pty
     // ABI-compatible; detached so our exit (or SIGKILL) never reaches it.
     const child = spawn(process.execPath, [path.join(import.meta.dirname, "ptyHost.js"), this.socketPath], {
       detached: true,
+      windowsHide: true,
       stdio: ["ignore", log, log],
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
     });
@@ -250,7 +250,7 @@ class PtyHostClient {
     }
     if (msg.type === "foreground") {
       updateForegroundSession(msg.meta);
-      for (const window of BrowserWindow.getAllWindows()) window.webContents.send("term:busy", msg.meta.id, msg.meta.busy ?? false);
+      for (const window of BrowserWindow.getAllWindows()) window.webContents.send("term:busy", msg.meta.id, msg.meta.busy ?? false, msg.meta.foregroundCommand);
       return;
     }
     if (msg.type === "cwd") {
@@ -356,7 +356,8 @@ export async function startPtyHost(): Promise<void> {
   closeMissing(terms.map((t) => t.id));
   for (const t of terms) if (t.workspace && !termWorkspace(t.id)) linkTermToWorkspace(t.id, t.workspace);
   for (const term of terms) if (term.foregroundProcess) updateForegroundSession(term);
-  stopLegacyDetection = startLegacyDetection(client);
+  // Hosts that predate foreground reporting are a macOS-era thing; ps is too.
+  if (!isWindows) stopLegacyDetection = startLegacyDetection(client);
 
   ipcMain.handle("term:create", (event, opts: TermCreateOptions = {}) => createTerm({ ...opts, windowSet: windowSetOf(event.sender) }));
   ipcMain.handle("term:list", async (event): Promise<TermMeta[]> => {

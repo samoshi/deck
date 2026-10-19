@@ -26,6 +26,8 @@ export interface TermTab extends AgentLaunch {
   cwd?: string;
   /** A program other than the shell is running, so the tab is not at a prompt. */
   busy?: boolean;
+  /** Command line of that program, as typed. */
+  command?: string;
   customTitle?: string;
   /** Color the running program set over OSC 6; agents tint per state. */
   tabColor?: string;
@@ -119,6 +121,7 @@ export function TabProvider({ children }: { children: ReactNode }) {
     title: meta.agent ?? meta.command?.split(" ")[0] ?? "shell",
     cwd: meta.cwd,
     busy: meta.busy,
+    command: meta.foregroundCommand,
     customTitle: localStorage.getItem(`deck.tab.name.${meta.id}`) ?? undefined,
     layerId: meta.layer,
     groupId: meta.group,
@@ -367,8 +370,8 @@ export function TabProvider({ children }: { children: ReactNode }) {
     setTabs((tabs) => tabs.map((tab) => tab.termId === termId ? { ...tab, groupId: group ?? undefined } : tab));
   }), []);
 
-  useEffect(() => window.deck.term.onBusy((termId, busy) => {
-    setTabs((tabs) => tabs.map((tab) => tab.termId === termId ? { ...tab, busy } : tab));
+  useEffect(() => window.deck.term.onBusy((termId, busy, command) => {
+    setTabs((tabs) => tabs.map((tab) => tab.termId === termId ? { ...tab, busy, command: busy ? command : undefined } : tab));
   }), []);
 
   useEffect(() => window.deck.term.onExit((id) => closeTab(id, false)), [closeTab]);
@@ -477,6 +480,12 @@ export function TabProvider({ children }: { children: ReactNode }) {
     [layerTabs, tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, reopenTabs, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, createGroup, resumeTab, addCreated, goBack, goForward, pausedByLayer],
   );
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
+}
+
+/** The command a shell tab is running, to label it like Warp does: agent tabs
+ *  are named by their session instead, and a tab at its prompt has no command. */
+export function runningCommand(tab: Pick<TermTab, "agent" | "busy" | "command">): string | undefined {
+  return !tab.agent && tab.busy ? tab.command : undefined;
 }
 
 export function useTabs(): TabStore {

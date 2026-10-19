@@ -1,6 +1,8 @@
 /** Shortcuts deck does not route through keybinds.ts, and the table style both
  *  the settings page and the ? overlay list them with. */
 
+import { primaryHint } from "../../../shared/keybinds.js";
+
 export type Fixed = [keys: string[], action: string];
 
 export const kbd = "rounded border border-edge2 bg-card px-1.5 py-0.5 font-mono text-[11px] text-soft";
@@ -10,8 +12,8 @@ export const fixedGroups: { title: string; description: string; bindings: Fixed[
     title: "Terminal tabs",
     description: "Fixed.",
     bindings: [
-      [["⌘1", "…", "⌘9"], "Switch to tab by position"],
-      [["⌘⏎"], "Run the multiline input"],
+      [[`${primaryHint}1`, "…", `${primaryHint}9`], "Switch to tab by position"],
+      [[`${primaryHint}⏎`], "Run the multiline input"],
       [["esc"], "Leave Zen or Presentation view"],
     ],
   },
@@ -21,7 +23,7 @@ export const fixedGroups: { title: string; description: string; bindings: Fixed[
     bindings: [
       [["↑", "↓"], "Move the selection"],
       [["⏎"], "Open the selected item"],
-      [["⌘⏎"], "Open the selected item in a new pane"],
+      [[`${primaryHint}⏎`], "Open the selected item in a new pane"],
       [["esc"], "Close the palette"],
     ],
   },

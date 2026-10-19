@@ -6,8 +6,8 @@ import { useTips } from "../tips/TipsProvider.js";
 import { useAgentSessions } from "../lib/useSessions.js";
 import { shortPath, useGitSummary } from "../lib/useGitSummary.js";
 import { useSettings } from "../lib/useSettings.js";
-import { formatChord, matchKeybind, resolveKeybinds } from "../../../shared/keybinds.js";
-import { useTabs, type TermTab } from "../store.js";
+import { formatChord, matchKeybind, primaryHint, primaryModifier, resolveKeybinds } from "../../../shared/keybinds.js";
+import { runningCommand, useTabs, type TermTab } from "../store.js";
 import { splitPlacement } from "../../../shared/settings.js";
 import { Icon } from "../board/icons.js";
 import { ChangesPanel } from "./ChangesPanel.js";
@@ -63,7 +63,7 @@ export function TerminalView({ visible }: { visible: boolean }) {
   const keybinds = resolveKeybinds(settings?.keybinds);
   const defaultAgent = settings?.defaultAgent ?? "claude";
   const needsReview = session?.status === "needs_review";
-  const activeTitle = activeTab?.customTitle || session?.title || activeTab?.agent || activeTab?.title || "Terminal";
+  const activeTitle = activeTab?.customTitle || session?.title || activeTab?.agent || (activeTab && runningCommand(activeTab)) || activeTab?.title || "Terminal";
   const canvas = useCanvas(activeId);
   // A drawing landing for the tab in front opens the canvas: that is the
   // moment the agent wants the person to look.
@@ -247,7 +247,7 @@ export function TerminalView({ visible }: { visible: boolean }) {
         <div className="flex items-center gap-1">
           {splitButtons.map(({ towards, icon, label }) => <button key={towards} title={`${label} (${formatChord(keybinds[`split.${towards}`])})`} aria-label={label} onClick={() => { report({ action: "split-button" }); void split(towards); }} className="toolbar-button"><Icon name={icon} size={15} /></button>)}
           <button title={`Zoom the focused pane (${formatChord(keybinds["pane.zoom"])})`} aria-label="Zoom pane" aria-pressed={Boolean(unzoomed)} disabled={rects.length < 2} onClick={toggleZoom} className="toolbar-button disabled:opacity-30"><Icon name="maximize" size={15} /></button>
-          <button title="Find in terminal (⌘F)" aria-label="Find in terminal" onClick={() => terminalAction("find")} className="toolbar-button"><Icon name="search" size={15} /></button>
+          <button title={`Find in terminal (${formatChord(keybinds.find)})`} aria-label="Find in terminal" onClick={() => terminalAction("find")} className="toolbar-button"><Icon name="search" size={15} /></button>
           <button title="Export terminal output" aria-label="Export terminal output" onClick={() => terminalAction("export")} className="toolbar-button"><Icon name="download" size={15} /></button>
         </div>
       </div>
@@ -274,7 +274,7 @@ export function TerminalView({ visible }: { visible: boolean }) {
           return <div key={tab.termId} className={`absolute overflow-hidden ${rects.length > 1 ? `border ${tab.termId === activeId ? "border-edge3" : "terminal-pane-inactive border-edge"}` : ""}`}
             style={rect ? { left: `${rect.left}%`, top: `${rect.top}%`, width: `${rect.width}%`, height: `${rect.height}%`, display: shown ? "flex" : "none", flexDirection: "column" } : { display: "none" }}
             onMouseDown={() => { if (activeId !== tab.termId) focusTab(tab.termId); }}>
-            {rects.length > 1 && <div className="flex h-6 shrink-0 items-center gap-2 bg-panel px-3 font-sans text-[10px] text-mut"><Icon name="terminal" size={10} /><span className="truncate">{tab.customTitle || tab.title}</span><button className="ml-auto" title="Close pane" onClick={() => requestCloseTab(tab.termId)}><Icon name="x" size={10} /></button></div>}
+            {rects.length > 1 && <div className="flex h-6 shrink-0 items-center gap-2 bg-panel px-3 font-sans text-[10px] text-mut"><Icon name="terminal" size={10} /><span className="truncate">{tab.customTitle || runningCommand(tab) || tab.title}</span><button className="ml-auto" title="Close pane" onClick={() => requestCloseTab(tab.termId)}><Icon name="x" size={10} /></button></div>}
             <div className="min-h-0 flex-1">{tab.paused
               ? <button onClick={() => void resumeTab(tab.termId)} className="flex h-full w-full flex-col items-center justify-center gap-2 font-sans text-[11px] text-dim hover:text-soft"><Icon name="play" size={14} />Resume {tab.customTitle || tab.title}</button>
               : <TerminalPane termId={tab.termId} cwd={tab.cwd} busy={tab.busy} active={shown} focused={shown && tab.termId === activeId} onTitle={(title) => setTitle(tab.termId, title)} onTabColor={(color) => setTabColor(tab.termId, color)} onCommand={(command) => report({ command })} onFileDrop={() => focusTab(tab.termId)} />}</div>
@@ -306,16 +306,16 @@ export function TerminalView({ visible }: { visible: boolean }) {
         {!tabs.length && <div className="flex h-full items-center justify-center font-sans text-xs text-dim">{formatChord(keybinds["tab.new"])} to open a terminal</div>}
       </div>
       {composer && <div className="workbench-chrome mx-4 mb-3 rounded-lg border border-edge3 bg-card px-3 py-2">
-        <textarea aria-label="Command editor" autoFocus rows={3} value={command} onChange={(event) => setCommand(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && event.metaKey) { event.preventDefault(); submit(); } }} placeholder="Write a command or paste a multiline prompt…" className="w-full resize-y bg-transparent font-mono text-xs leading-5 text-soft outline-none placeholder:text-dim" />
-        <div className="flex items-center gap-2 font-sans text-[10px] text-dim"><span>Send to active terminal</span><button className="ml-auto text-mut" onClick={() => setComposer(false)}>Close</button><button disabled={!command.trim()} onClick={submit} className="rounded border border-edge3 px-2 py-1 text-soft disabled:opacity-30">Send ⌘↵</button></div>
+        <textarea aria-label="Command editor" autoFocus rows={3} value={command} onChange={(event) => setCommand(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && primaryModifier(event)) { event.preventDefault(); submit(); } }} placeholder="Write a command or paste a multiline prompt…" className="w-full resize-y bg-transparent font-mono text-xs leading-5 text-soft outline-none placeholder:text-dim" />
+        <div className="flex items-center gap-2 font-sans text-[10px] text-dim"><span>Send to active terminal</span><button className="ml-auto text-mut" onClick={() => setComposer(false)}>Close</button><button disabled={!command.trim()} onClick={submit} className="rounded border border-edge3 px-2 py-1 text-soft disabled:opacity-30">Send {primaryHint}↵</button></div>
       </div>}
       <footer className="workbench-chrome flex h-10 shrink-0 items-center gap-2 border-t border-edge px-4 font-sans text-[11px] text-mut">
         <button title={`New terminal (${formatChord(keybinds["tab.new"])})`} onClick={() => { report({ action: "new-tab-button" }); void newTab(); }} className="toolbar-button"><Icon name="plus" size={13} /></button>
         <button title={`New ${agentLabels[defaultAgent]} tab (${formatChord(keybinds["tab.newAgent"])})`} onClick={() => void newTab({ agent: defaultAgent })} className="toolbar-button"><Icon name="sparkle" size={13} /></button>
         {git && <button onClick={() => terminalAction("changes")} className="flex items-center gap-1.5 rounded border border-edge2 px-2 py-0.5"><Icon name="file" size={11} /><span>{git.changedFiles}</span><span className="text-green">+{git.added}</span><span className="text-red">−{git.removed}</span></button>}
         <button onClick={() => terminalAction("files")} className={`flex items-center gap-1.5 rounded px-2 py-1 ${panel === "files" ? "bg-card2 text-soft" : "hover:text-soft"}`}><Icon name="folder" size={12} />File explorer</button>
-        <button onClick={() => terminalAction("canvas")} title="Drawings the agent posted for this tab (⌘⇧E)" className={`flex items-center gap-1.5 rounded px-2 py-1 ${panel === "canvas" ? "bg-card2 text-soft" : "hover:text-soft"}`}><Icon name="canvas" size={12} />Canvas{canvas.length > 0 && <span className="text-dim">{canvas.length}</span>}</button>
-        <button onClick={() => setComposer(!composer)} className={`flex items-center gap-1.5 rounded px-2 py-1 ${composer ? "bg-card2 text-soft" : "hover:text-soft"}`}><Icon name="pencil" size={12} />Rich input <kbd className="text-dim">⌘J</kbd></button>
+        <button onClick={() => terminalAction("canvas")} title={`Drawings the agent posted for this tab (${formatChord(keybinds.canvas)})`} className={`flex items-center gap-1.5 rounded px-2 py-1 ${panel === "canvas" ? "bg-card2 text-soft" : "hover:text-soft"}`}><Icon name="canvas" size={12} />Canvas{canvas.length > 0 && <span className="text-dim">{canvas.length}</span>}</button>
+        <button onClick={() => setComposer(!composer)} className={`flex items-center gap-1.5 rounded px-2 py-1 ${composer ? "bg-card2 text-soft" : "hover:text-soft"}`}><Icon name="pencil" size={12} />Rich input <kbd className="text-dim">{formatChord(keybinds.composer)}</kbd></button>
         <span className="ml-auto min-w-0 truncate text-dim">{shortPath(cwd)}</span>
         {git && <button onClick={() => terminalAction("changes")} className="flex items-center gap-1.5 rounded border border-edge2 px-2 py-0.5"><Icon name="branch" size={11} />{git.branch}</button>}
         {needsReview && <button onClick={() => setPanel("changes")} className="text-orange">Needs review</button>}

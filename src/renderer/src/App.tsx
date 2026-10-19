@@ -9,7 +9,7 @@ import { ReviewsView } from "./board/ReviewsView.js";
 import { SettingsView, type SettingsSection } from "./chrome/SettingsView.js";
 import { SettingsProvider, useSettings } from "./lib/useSettings.js";
 import { isRecordingKeys, isTyping } from "./lib/useKeybinds.js";
-import { matchKeybind, resolveKeybinds, type KeybindCommand } from "../../shared/keybinds.js";
+import { matchKeybind, primaryModifier, resolveKeybinds, type KeybindCommand } from "../../shared/keybinds.js";
 import { defaultSettings } from "../../shared/settings.js";
 import { fontSize as safeFontSize } from "../../shared/terminal.js";
 import { useTerminalAppearance } from "./lib/useTerminalAppearance.js";
@@ -223,7 +223,7 @@ function Shell() {
         setShortcutsOpen(true);
         return;
       }
-      if (e.metaKey && !e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
+      if (primaryModifier(e) && !e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
         const tab = tabs[Number(e.key) - 1];
         if (tab) { focusTab(tab.termId); setView("terminal"); }
       } else if (!command || !runCommand(command)) {

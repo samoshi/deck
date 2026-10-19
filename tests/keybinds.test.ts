@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isMac } from "../src/shared/platform.js";
 import { acceleratorOf, chordOf, defaultKeybinds, formatAccelerator, formatChord, matchKeybind, resolveKeybinds } from "../src/shared/keybinds.js";
 
 const press = (over: Partial<Parameters<typeof chordOf>[0]>) => ({ key: "", code: "", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...over });
@@ -15,7 +16,8 @@ describe("keybinds", () => {
     expect(chordOf(press({ key: "Meta", code: "MetaLeft", metaKey: true }))).toBeUndefined();
   });
 
-  it("matches overrides over defaults", () => {
+  // Defaults and symbols differ off the Mac.
+  it.runIf(isMac)("matches overrides over defaults", () => {
     const keybinds = resolveKeybinds({ search: "Ctrl+Space" });
     expect(matchKeybind(keybinds, press({ key: " ", code: "Space", ctrlKey: true }))).toBe("search");
     expect(matchKeybind(keybinds, press({ key: "k", code: "KeyK", metaKey: true }))).toBeUndefined();
@@ -30,14 +32,16 @@ describe("keybinds", () => {
     expect(matchKeybind(keybinds, press({ key: "t", code: "KeyT", metaKey: true }))).toBeUndefined();
   });
 
-  it("opens the default agent's tab on \u2318\u21e7N, leaving \u2318T the plain tab", () => {
+  // Defaults and symbols differ off the Mac.
+  it.runIf(isMac)("opens the default agent's tab on \u2318\u21e7N, leaving \u2318T the plain tab", () => {
     const keybinds = resolveKeybinds({});
     expect(matchKeybind(keybinds, press({ key: "n", code: "KeyN", metaKey: true, shiftKey: true }))).toBe("tab.newAgent");
     expect(matchKeybind(keybinds, press({ key: "t", code: "KeyT", metaKey: true }))).toBe("tab.new");
     expect(matchKeybind(keybinds, press({ key: "t", code: "KeyT", metaKey: true, shiftKey: true }))).toBe("tab.reopen");
   });
 
-  it("matches the terminal text size chords, digits coming from the physical key", () => {
+  // Defaults and symbols differ off the Mac.
+  it.runIf(isMac)("matches the terminal text size chords, digits coming from the physical key", () => {
     const keybinds = resolveKeybinds({});
     expect(matchKeybind(keybinds, press({ key: "=", code: "Equal", metaKey: true }))).toBe("font.increase");
     expect(matchKeybind(keybinds, press({ key: "-", code: "Minus", metaKey: true }))).toBe("font.decrease");
@@ -46,7 +50,8 @@ describe("keybinds", () => {
     expect(matchKeybind(keybinds, press({ key: "1", code: "Digit1", metaKey: true }))).toBeUndefined();
   });
 
-  it("turns arrow chords into electron accelerators", () => {
+  // Defaults and symbols differ off the Mac.
+  it.runIf(isMac)("turns arrow chords into electron accelerators", () => {
     expect(acceleratorOf(defaultKeybinds["split.right"])).toBe("CommandOrControl+Shift+Right");
     expect(acceleratorOf(defaultKeybinds["splitAgent.up"])).toBe("CommandOrControl+Alt+Up");
     expect(acceleratorOf(defaultKeybinds["pane.left"])).toBe("CommandOrControl+Control+Left");
@@ -54,7 +59,8 @@ describe("keybinds", () => {
     expect(formatChord(defaultKeybinds["pane.right"])).toBe("⌘⌃→");
   });
 
-  it("takes brackets from the physical key so ⌘⇧[ is not ⌘⇧{", () => {
+  // Defaults and symbols differ off the Mac.
+  it.runIf(isMac)("takes brackets from the physical key so ⌘⇧[ is not ⌘⇧{", () => {
     const keybinds = resolveKeybinds({});
     expect(chordOf(press({ key: "{", code: "BracketLeft", metaKey: true, shiftKey: true }))).toBe("Meta+Shift+[");
     expect(matchKeybind(keybinds, press({ key: "{", code: "BracketLeft", metaKey: true, shiftKey: true }))).toBe("workspace.prev");
@@ -67,7 +73,8 @@ describe("keybinds", () => {
     expect(new Set(chords).size).toBe(chords.length);
   });
 
-  it("matches the WezTerm split, focus and zoom chords", () => {
+  // Defaults and symbols differ off the Mac.
+  it.runIf(isMac)("matches the WezTerm split, focus and zoom chords", () => {
     const keybinds = resolveKeybinds({});
     const arrow = (key: string, over: Record<string, boolean>) => press({ key, code: key, metaKey: true, ...over });
     expect(matchKeybind(keybinds, arrow("ArrowUp", { shiftKey: true }))).toBe("split.up");
@@ -76,7 +83,8 @@ describe("keybinds", () => {
     expect(matchKeybind(keybinds, arrow("ArrowRight", { ctrlKey: true }))).toBe("pane.right");
     expect(matchKeybind(keybinds, press({ key: "z", code: "KeyZ", metaKey: true }))).toBe("pane.zoom");
   });
-  it("turns chords into electron accelerators", () => {
+  // Defaults and symbols differ off the Mac.
+  it.runIf(isMac)("turns chords into electron accelerators", () => {
     expect(acceleratorOf("Meta+,")).toBe("CommandOrControl+,");
     expect(acceleratorOf("Meta+Alt+Digit2")).toBe("CommandOrControl+Alt+2");
     expect(acceleratorOf(defaultKeybinds.zen)).toBe("CommandOrControl+Shift+Return");
@@ -87,7 +95,8 @@ describe("keybinds", () => {
     expect(acceleratorOf(defaultKeybinds["font.reset"])).toBe("CommandOrControl+0");
   });
 
-  it("formats chords with mac symbols", () => {
+  // Defaults and symbols differ off the Mac.
+  it.runIf(isMac)("formats chords with mac symbols", () => {
     expect(formatChord(defaultKeybinds.zen)).toBe("⌘⇧⏎");
     expect(formatChord("Meta+Alt+Digit1")).toBe("⌘⌥1");
     expect(formatChord("Ctrl+Space")).toBe("⌃space");
@@ -95,7 +104,8 @@ describe("keybinds", () => {
     expect(formatChord(defaultKeybinds["font.reset"])).toBe("⌘0");
   });
 
-  it("formats the summon accelerator with mac symbols", () => {
+  // Defaults and symbols differ off the Mac.
+  it.runIf(isMac)("formats the summon accelerator with mac symbols", () => {
     expect(formatAccelerator("Alt+Space")).toBe("⌥space");
     expect(formatAccelerator("CommandOrControl+Shift+Space")).toBe("⌘⇧space");
     expect(formatAccelerator(acceleratorOf("Meta+Alt+Digit1") ?? "")).toBe("⌘⌥1");
