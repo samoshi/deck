@@ -164,6 +164,10 @@ const api = {
     remove: (worktree: string, deleteBranch = false): Promise<RemoveResult> =>
       ipcRenderer.invoke("worktrees:remove", worktree, deleteBranch),
   },
+  app: {
+    /** Tells main this window's UI came up, which is what keeps a live build (liveReload.ts). */
+    ready: (): void => ipcRenderer.send("app:ready"),
+  },
   titles: {
     /** The short and longer names for `text`; undefined until a model has named it. */
     get: (key: string, text: string): Promise<ShortTitle | undefined> => ipcRenderer.invoke("titles:get", key, text),

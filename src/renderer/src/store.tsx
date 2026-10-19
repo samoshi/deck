@@ -163,6 +163,7 @@ export function TabProvider({ children }: { children: ReactNode }) {
       setTabs(restoredTabs(live, remembered));
       setActiveId((active) => terms.some((term) => term.id === active) ? active : live.at(-1)?.termId);
       setReady(true);
+      window.deck.app.ready();
     });
   }, [windowMode, workspace]);
 

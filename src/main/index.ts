@@ -113,6 +113,7 @@ import { invalidateSessionPullRequests, sessionPullRequests } from "./sessionPrs
 import { registerCustomButtons } from "./customButtons.js";
 import { getSettings, updateSettings } from "./settings.js";
 import { titleFor } from "./titles.js";
+import { onLiveChanged, rendererIndex, startLiveReload } from "./liveReload.js";
 import { forgetHistory, listHistory, markReopened, noteSessions, setFocus, takeLastClosed } from "./history.js";
 import { isMac } from "../shared/platform.js";
 
@@ -253,7 +254,7 @@ function createWindow(role: WindowRole, from?: BrowserWindow, set: string = role
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    win.loadFile(path.join(import.meta.dirname, "../renderer/index.html"));
+    win.loadFile(rendererIndex());
   }
   return win;
 }
@@ -371,6 +372,8 @@ function createTray(): void {
 app.whenReady().then(async () => {
   app.dock?.setIcon(nativeImage.createFromPath(devIcon ?? appIcon));
   await startPtyHost();
+  startLiveReload();
+  onLiveChanged(installAppMenu);
   startServer();
   startIndexer();
   startExtensions();

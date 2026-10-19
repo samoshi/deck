@@ -334,6 +334,8 @@ export interface DeckSettings extends WorkspaceSettings {
   customButtons: CustomButton[];
   /** Whether first-run setup has been through. Until then deck opens on it. */
   onboarded: boolean;
+  /** A deck checkout that ⌘⇧R builds and runs in place of the installed code. */
+  liveSource: string;
   terminalAppearance: TerminalAppearanceSettings;
   experiments: ExperimentSettings;
 }
@@ -395,6 +397,7 @@ export const defaultSettings: DeckSettings = {
   showTips: true,
   customButtons: [],
   onboarded: false,
+  liveSource: "",
   terminalAppearance: {
     fontFamily: "",
     fontSize: 13,

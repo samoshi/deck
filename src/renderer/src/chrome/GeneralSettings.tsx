@@ -116,6 +116,13 @@ export function GeneralSettings() {
           </div>
         </Card>
 
+        <Card title="Live source" description="A deck checkout to run in place of the installed code. ⌘⇧R runs its typecheck, tests and build, and only if they all pass reloads Deck on a copy of the result, keeping your tabs and running terminals. A copy that does not come up is replaced by the last one that did.">
+          <Field label="Checkout folder" hint="empty turns ⌘⇧R off; Deck → Use Installed Deck goes back">
+            <input aria-label="Live source" placeholder="~/personal/deck" className={`w-full font-mono ${control}`} defaultValue={settings.liveSource}
+              onBlur={onBlurText(settings.liveSource, (liveSource) => void update({ liveSource }))} />
+          </Field>
+        </Card>
+
         <Card title="Windows" description="Which window the hotkey and the Dock open, and what each one shows.">
           <Field label="Hotkey window">
             <select className={`w-full ${control}`} value={settings.windowMode}

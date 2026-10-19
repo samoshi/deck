@@ -7,8 +7,10 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        // ptyHost is its own detached process, not imported by index.
+        // ptyHost is its own detached process, not imported by index; boot
+        // picks the installed or the live build of index (liveState.ts).
         input: {
+          boot: "src/main/boot.ts",
           index: "src/main/index.ts",
           ptyHost: "src/main/ptyHost.ts",
         },

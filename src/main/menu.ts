@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from "electron";
 import { acceleratorOf, resolveKeybinds, type KeybindCommand, type Keybinds } from "../shared/keybinds.js";
+import { liveStatus, rebuildAndReload, useInstalled } from "./liveReload.js";
 import { getSettings } from "./settings.js";
 
 // Replaces electron's stock menu, which has no Settings item. Menu items send
@@ -16,9 +17,21 @@ function command(label: string, id: KeybindCommand, keybinds: Keybinds): MenuIte
   };
 }
 
+// Fixed, not a keybind: the renderer never sees it, so nothing in a terminal can press it.
+function liveItems(): MenuItemConstructorOptions[] {
+  const { running } = liveStatus();
+  return [
+    { label: "Rebuild and Reload", accelerator: "CmdOrCtrl+Shift+R", click: () => void rebuildAndReload() },
+    running
+      ? { label: `Use Installed Deck (now ${running.commit})`, click: useInstalled }
+      : { label: "Running the installed Deck", enabled: false },
+  ];
+}
+
 export function installAppMenu(): void {
   const keybinds = resolveKeybinds(getSettings().keybinds);
   const settings = command("Settings…", "settings", keybinds);
+  const live = app.isPackaged ? [{ type: "separator" as const }, ...liveItems()] : [];
   const template: MenuItemConstructorOptions[] = [
     ...(isMac
       ? [{
@@ -27,6 +40,7 @@ export function installAppMenu(): void {
             { role: "about" as const },
             { type: "separator" as const },
             settings,
+            ...live,
             { type: "separator" as const },
             { role: "services" as const },
             { type: "separator" as const },
@@ -37,7 +51,7 @@ export function installAppMenu(): void {
             { role: "quit" as const },
           ],
         }]
-      : [{ label: "File", submenu: [settings, { type: "separator" as const }, { role: "quit" as const }] }]),
+      : [{ label: "File", submenu: [settings, ...live, { type: "separator" as const }, { role: "quit" as const }] }]),
     { role: "editMenu" },
     {
       label: "View",
