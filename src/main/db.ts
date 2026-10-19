@@ -77,6 +77,9 @@ const migrations: string[] = [
     short TEXT NOT NULL,
     long TEXT NOT NULL
   );`,
+  `ALTER TABLE agent_sessions ADD COLUMN topic TEXT;
+   ALTER TABLE agent_sessions ADD COLUMN prompt_count INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE agent_sessions ADD COLUMN recent_prompts TEXT NOT NULL DEFAULT '[]';`,
 ];
 
 export function openDb(): Database.Database {

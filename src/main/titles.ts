@@ -7,8 +7,8 @@ import { openDb } from "./db.js";
 const exec = promisify(execFile);
 
 // A first prompt makes a poor tab label: it is a paragraph cut off at whatever
-// width the sidebar has. Each one is named once by a small model, in a short
-// and a longer form, and the sidebar shows whichever fits.
+// width the sidebar has. A small model names the work (shared/topic.ts) in a
+// short and a longer form, and the sidebar shows whichever fits.
 
 export interface ShortTitle {
   /** One or two words. */
@@ -18,9 +18,13 @@ export interface ShortTitle {
 }
 
 const PROMPT = `Name the work described below for a sidebar label.
+Name the subject: the project, customer, system, ticket or role the work is about, not the action taken (not "brief", "review", "read", "help").
+Reuse the user's own words for it, such as names, acronyms and ticket keys, spelled as the user wrote them.
+The folder only says where the work runs; use it only when nothing else names the subject.
+When several requests are given, the latest ones say most about where the work is now.
 Reply with exactly two lines and nothing else:
 line 1: one or two words
-line 2: three to five words
+line 2: three to five words, starting with the subject from line 1
 Plain words, no quotes, no trailing punctuation, no emoji.
 
 `;

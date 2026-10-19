@@ -24,8 +24,10 @@ import type { View } from "../App.js";
 
 /** `indent` is how deep the row sits: 0 ungrouped, 1 in a group, 2 in the
  *  subgroup a split makes. */
-function SessionRow({ tab, session, index, indent = 0, group, onGroupWith, onPlace, onDrag, onOpen }: {
+function SessionRow({ tab, session, topic, index, indent = 0, group, onGroupWith, onPlace, onDrag, onOpen }: {
   tab: TermTab; session?: AgentSession; index: number; indent?: number;
+  /** What the tab is named from, kept for a paused tab whose session has ended. */
+  topic?: string;
   /** The group the row sits in, which is also where a tab dropped beside it lands. */
   group?: TabGroup;
   onGroupWith: (dragged: string, target: TermTab) => void;
@@ -55,13 +57,13 @@ function SessionRow({ tab, session, index, indent = 0, group, onGroupWith, onPla
     window.addEventListener("mousedown", dismiss);
     return () => window.removeEventListener("mousedown", dismiss);
   }, [menu]);
-  // A plain drop only reorders, landing in the group of the row it lands
-  // beside, so where the line is drawn is where the tab goes. Grouping the two
-  // tabs is the deliberate act, and takes ⌥.
+  // The left of a row groups the two tabs; the right reorders, landing in the
+  // group of the row it lands beside, above or below by which half it is on.
+  // ⌥ groups anywhere.
   const [dropZone, setDropZone] = useState<"before" | "into" | "after">();
   const zoneAt = (event: React.DragEvent): "before" | "into" | "after" => {
-    if (event.altKey) return "into";
     const box = event.currentTarget.getBoundingClientRect();
+    if (event.altKey || event.clientX - box.left < box.width * 0.45) return "into";
     return event.clientY - box.top < box.height / 2 ? "before" : "after";
   };
   const [name, setName] = useState("");
@@ -72,7 +74,7 @@ function SessionRow({ tab, session, index, indent = 0, group, onGroupWith, onPla
   // An agent tab is labelled by a short name for its work rather than its
   // first prompt; a name the user typed always wins.
   const sessionKey = session?.session_id ?? tab.sessionId;
-  const named = useShortTitle(!tab.customTitle && agent && sessionKey ? `session:${sessionKey}` : undefined, session?.title ?? (tab.paused ? tab.title : undefined));
+  const named = useShortTitle(!tab.customTitle && agent && sessionKey ? `session:${sessionKey}` : undefined, topic ?? session?.title ?? (tab.paused ? tab.title : undefined));
   const title = named?.long ?? fullTitle;
   const labels = named ? [named.long, named.short] : [fullTitle];
   const active = activeId === tab.termId;
@@ -274,6 +276,8 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
     return () => window.removeEventListener("mousedown", dismiss);
   }, [menu]);
   const byTerm = new Map(sessions.filter((session) => session.term_id && session.status !== "ended").reverse().map((session) => [session.term_id, session]));
+  const bySession = new Map(sessions.map((session) => [session.session_id, session]));
+  const topicOf = (tab: TermTab) => byTerm.get(tab.termId)?.topic ?? (tab.sessionId ? bySession.get(tab.sessionId)?.topic : undefined) ?? undefined;
   const liveAgentTabs = tabs.flatMap((tab) => {
     const session = byTerm.get(tab.termId);
     return session && !session.session_id.startsWith("pending:") ? [{ tab, session }] : [];
@@ -431,7 +435,7 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
   const drawn = new Set<string>();
   const membersOf = (group: TabGroup) => visibleTabs.filter((tab) => tab.groupId === group.id);
   const childrenOf = (group: TabGroup) => layerGroups.filter((other) => other.parent === group.id);
-  const row = (tab: TermTab, group?: TabGroup, indent = 0) => <SessionRow key={tab.termId} tab={tab} session={byTerm.get(tab.termId)}
+  const row = (tab: TermTab, group?: TabGroup, indent = 0) => <SessionRow key={tab.termId} tab={tab} session={byTerm.get(tab.termId)} topic={topicOf(tab)}
     index={tabs.indexOf(tab)} indent={indent} group={group} onGroupWith={groupWith} onPlace={place} onDrag={setDragging}
     onOpen={() => { focusTab(tab.termId); onView("terminal"); }} />;
   const groupRows = (group: TabGroup, depth: number) => {
@@ -442,7 +446,7 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
     // subgroups included, so nothing disappears without a number for it.
     const held = [...members, ...children.flatMap(membersOf)];
     held.forEach((tab) => done.add(tab.termId));
-    const source = held.map((tab) => tab.customTitle || byTerm.get(tab.termId)?.title || (tab.title === "shell" && tab.cwd ? baseName(tab.cwd) : tab.title) || "").sort().join("\n");
+    const source = held.map((tab) => tab.customTitle || topicOf(tab) || byTerm.get(tab.termId)?.title || (tab.title === "shell" && tab.cwd ? baseName(tab.cwd) : tab.title) || "").sort().join("\n");
     rows.push(<GroupHeader key={group.id} group={group} source={source} count={held.length} waiting={waitingIn(held)} nested={depth > 0}
       onToggle={() => saveGroups(layerGroups.map((other) => other.id === group.id ? { ...other, collapsed: !other.collapsed } : other))}
       onChange={(next) => saveGroups(layerGroups.map((other) => other.id === group.id ? next : other))}

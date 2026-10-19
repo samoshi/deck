@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { addStats, claudeStats, codexStats, priceUsd } from "../src/main/tabStats.js";
 import { parseTitle } from "../src/main/titles.js";
+import { briefHeading, isInjectedPrompt, renameAt, topicSource } from "../src/shared/topic.js";
 import { dayLabel, formatDuration, formatTokens, formatUsd } from "../src/shared/historyFormat.js";
 
 const line = (entry: object) => JSON.stringify(entry);
@@ -99,5 +100,30 @@ describe("short titles", () => {
     expect(parseTitle("Deck Navigation\nPreserve layers, add history")).toEqual({ short: "Deck Navigation", long: "Preserve layers, add history" });
     expect(parseTitle("line 1: \"Tab history\"\nline 2: Browser style history for every tab")).toEqual({ short: "Tab history", long: "Browser style history for every" });
     expect(parseTitle("just one line")).toBeUndefined();
+  });
+});
+
+describe("tab topics", () => {
+  it("names again after the first and third prompts, then every eighth", () => {
+    expect([1, 2, 3, 4, 10, 11, 19, 20].filter(renameAt)).toEqual([1, 3, 11, 19]);
+  });
+
+  it("skips text the harness injects but keeps pasted content", () => {
+    expect(isInjectedPrompt("<cross-session-message from=\"x\">hi</cross-session-message>")).toBe(true);
+    expect(isInjectedPrompt("<pasted_content id=\"1\">log</pasted_content> why")).toBe(false);
+    expect(isInjectedPrompt("brief for the psotex stuff, read it")).toBe(false);
+  });
+
+  it("finds the heading of a brief a SessionStart hook injected", () => {
+    const stdout = JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: "Zoom-out brief from ttys018.\n\n# Postex P1C access: LB allow-list fixed\n\n## Where things stand" } });
+    const transcript = [line({ type: "system" }), line({ attachment: { type: "hook_success", hookEvent: "SessionStart", stdout } })].join("\n");
+    expect(briefHeading(transcript)).toBe("Postex P1C access: LB allow-list fixed");
+    expect(briefHeading(line({ type: "user", message: { content: "# not a brief" } }))).toBeUndefined();
+  });
+
+  it("puts the folder, branch, brief and prompts in front of the model", () => {
+    expect(topicSource({ folder: "deck", branch: "feat/tab-ux", brief: "Postex brief", first: "read  it", latest: ["fix the LB"] }))
+      .toBe("Folder: deck (branch feat/tab-ux)\nStarted from a brief titled: Postex brief\nFirst request: read it\nLatest request: fix the LB");
+    expect(topicSource({ folder: "deck", branch: "main", first: "hi", latest: [] })).toBe("Folder: deck\nFirst request: hi");
   });
 });

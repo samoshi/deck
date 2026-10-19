@@ -1,5 +1,10 @@
+import { open } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { promptTitle, sessionKey, type Agent } from "../shared/agents.js";
+import { briefHeading, isInjectedPrompt, renameAt, topicSource } from "../shared/topic.js";
 import { kvGet, kvSet, openDb } from "./db.js";
+import { gitSummary } from "./git.js";
 import type { RememberedTab } from "../shared/settings.js";
 
 // Registry of Claude Code and Codex sessions, fed by hook callbacks. Sessions
@@ -12,6 +17,11 @@ export interface AgentSession {
   agent: Agent;
   cwd: string;
   title: string | null;
+  /** What the tab name is made from; see shared/topic.ts. */
+  topic: string | null;
+  prompt_count: number;
+  /** JSON array of the latest prompts. */
+  recent_prompts: string;
   status: SessionStatus;
   term_id: string | null;
   transcript_path: string | null;
@@ -256,10 +266,11 @@ export function applyHook(payload: HookPayload, termId: string | null, agent: Ag
 
   // The first prompt of a session becomes its title, and an issue key
   // mentioned in it links the session to that ticket.
-  if (payload.hook_event_name === "UserPromptSubmit" && payload.prompt) {
+  if (payload.hook_event_name === "UserPromptSubmit" && payload.prompt && !isInjectedPrompt(payload.prompt)) {
     db.prepare(
       "UPDATE agent_sessions SET title = COALESCE(title, ?) WHERE session_id = ?",
     ).run(promptTitle(payload.prompt), id);
+    recordPrompt(id, payload.prompt);
     const key = ISSUE_KEY_RE.exec(payload.prompt)?.[0];
     if (key) {
       db.prepare(
@@ -268,6 +279,40 @@ export function applyHook(payload: HookPayload, termId: string | null, agent: Ag
     }
   }
   notify();
+}
+
+function recordPrompt(id: string, prompt: string): void {
+  const db = openDb();
+  const row = db.prepare("SELECT prompt_count, recent_prompts FROM agent_sessions WHERE session_id = ?").get(id) as Pick<AgentSession, "prompt_count" | "recent_prompts"> | undefined;
+  if (!row) return;
+  const count = row.prompt_count + 1;
+  const recent = [...(JSON.parse(row.recent_prompts) as string[]), promptTitle(prompt)].slice(-2);
+  db.prepare("UPDATE agent_sessions SET prompt_count = ?, recent_prompts = ? WHERE session_id = ?").run(count, JSON.stringify(recent), id);
+  if (renameAt(count)) void refreshTopic(id, count);
+}
+
+async function refreshTopic(id: string, count: number): Promise<void> {
+  const session = getSession(id);
+  if (!session?.title) return;
+  const [git, brief] = await Promise.all([
+    session.cwd ? gitSummary(session.cwd) : null,
+    session.transcript_path ? transcriptHead(session.transcript_path).then(briefHeading).catch(() => undefined) : undefined,
+  ]);
+  const latest = count === 1 ? [] : (JSON.parse(session.recent_prompts) as string[]);
+  const topic = topicSource({ folder: session.cwd && session.cwd !== os.homedir() ? path.basename(session.cwd) : undefined, branch: git?.branch, brief, first: session.title, latest });
+  openDb().prepare("UPDATE agent_sessions SET topic = ? WHERE session_id = ?").run(topic, id);
+  notify();
+}
+
+/** The opening of a transcript, where SessionStart hook output is written. */
+async function transcriptHead(file: string): Promise<string> {
+  const handle = await open(file, "r");
+  try {
+    const { buffer, bytesRead } = await handle.read(Buffer.alloc(256 * 1024), 0, 256 * 1024, 0);
+    return buffer.subarray(0, bytesRead).toString("utf8");
+  } finally {
+    await handle.close();
+  }
 }
 
 export function registerAgentTerm(term: { id: string; cwd: string; agent?: Agent; sessionId?: string; prompt?: string; issueKey?: string; workspace?: string }): void {
