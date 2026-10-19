@@ -9,6 +9,7 @@ import { SERVER_PORT } from "./port.js";
 import type { ClientMessage, HostMessage, SpawnRequest, TermMeta as HostTermMeta } from "./ptyHost.js";
 import { clearTermLinks, linkTermToIssue, linkTermToWorkspace, moveTermSessions, placeTerm, registerAgentTerm, endTermSessions, rememberTabs, rememberedTabs, termPlacement, termWorkspace, updateForegroundSession } from "./sessions.js";
 import { getSettings, updateSettings } from "./settings.js";
+import { closeMissing, noteTabs, recordClose, recordOpen } from "./history.js";
 import { pruneGroups, workspaceOf, type RememberedTab } from "../shared/settings.js";
 import { LegacyAgentDetector } from "./legacyAgentDetection.js";
 
@@ -260,6 +261,7 @@ class PtyHostClient {
       endTermSessions(msg.id);
       this.owners.delete(msg.id);
       for (const cb of exitListeners) cb(msg.id);
+      recordClose(msg.id);
       schedulePrune();
       // Every window lists the tab, not only the ones that displayed it.
       for (const window of BrowserWindow.getAllWindows()) window.webContents.send("term:exit", msg.id, msg.code);
@@ -351,6 +353,7 @@ export async function startPtyHost(): Promise<void> {
   // session rows; only the ones that didn't get unlinked.
   for (const t of terms) if (t.issueKey) linkTermToIssue(t.id, t.issueKey);
   clearTermLinks(terms.map((t) => t.id));
+  closeMissing(terms.map((t) => t.id));
   for (const t of terms) if (t.workspace && !termWorkspace(t.id)) linkTermToWorkspace(t.id, t.workspace);
   for (const term of terms) if (term.foregroundProcess) updateForegroundSession(term);
   stopLegacyDetection = startLegacyDetection(client);
@@ -368,6 +371,7 @@ export async function startPtyHost(): Promise<void> {
   ipcMain.on("term:kill", (_e, id: string) => {
     endTermSessions(id);
     client!.send({ type: "kill", id });
+    recordClose(id);
     schedulePrune();
   });
   // The terminal keeps running; it just lists under the other workspace from
@@ -386,7 +390,11 @@ export async function startPtyHost(): Promise<void> {
   // Terminals die with a full quit, so the window also writes down what its
   // tabs were; that is what the next start brings back, paused.
   ipcMain.handle("term:remembered", () => rememberedTabs()[getSettings().activeWorkspace] ?? []);
-  ipcMain.on("term:remember", (_e, tabs: RememberedTab[]) => { rememberTabs(getSettings().activeWorkspace, tabs); schedulePrune(); });
+  ipcMain.on("term:remember", (_e, tabs: RememberedTab[]) => {
+    rememberTabs(getSettings().activeWorkspace, tabs);
+    noteTabs(getSettings().activeWorkspace, tabs);
+    schedulePrune();
+  });
 }
 
 /** Opens a terminal (optionally running an agent) and tells every window about it. */
@@ -405,6 +413,7 @@ export async function createTerm(opts: TermCreateOptions = {}): Promise<TermMeta
   meta.layer = opts.layer ?? activeLayer;
   meta.group = group;
   registerAgentTerm(meta);
+  recordOpen({ ...meta, cwd: spawn.cwd });
   for (const window of BrowserWindow.getAllWindows()) if (visibleTo(window.webContents, meta)) window.webContents.send("term:created", meta);
   return meta;
 }

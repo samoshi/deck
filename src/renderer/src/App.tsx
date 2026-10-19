@@ -23,9 +23,10 @@ import { WorktreeClosePrompt } from "./chrome/WorktreeClosePrompt.js";
 import { SearchView } from "./search/SearchView.js";
 import { TabProvider, useTabs } from "./store.js";
 import { TerminalView } from "./terminal/TerminalView.js";
+import { HistoryView } from "./chrome/HistoryView.js";
 import { TipsProvider } from "./tips/TipsProvider.js";
 
-export type View = "terminal" | "board" | "agent" | "reviews" | "search" | "settings";
+export type View = "terminal" | "board" | "agent" | "reviews" | "search" | "settings" | "history";
 
 export default function App() {
   return (
@@ -58,7 +59,7 @@ function Shell() {
   const pageRef = useRef<HTMLDivElement>(null);
   useEffect(() => { pageRef.current?.getAnimations().forEach((animation) => { animation.cancel(); animation.play(); }); }, [view]);
   const [preview, setPreview] = useState<{ sessionId: string; query: string }>();
-  const { tabs, focusTab, newTab, requestCloseTab, reopenTab, activeId, moveTabToLayer } = useTabs();
+  const { tabs, focusTab, newTab, requestCloseTab, reopenTab, activeId, moveTabToLayer, goBack: tabBack, goForward: tabForward } = useTabs();
   const settings = useSettings();
   const keybinds = resolveKeybinds(settings?.keybinds);
   // First run sets the summon hotkey up before the workbench is usable.
@@ -140,6 +141,9 @@ function Shell() {
     else if (command === "shortcuts") setShortcutsOpen((open) => !open);
     else if (command === "sidebar") toggleSidebar();
     else if (command === "settings") setView("settings");
+    else if (command === "history") setView(view === "history" ? "terminal" : "history");
+    else if (command === "tab.back") { tabBack(); setView("terminal"); }
+    else if (command === "tab.forward") { tabForward(); setView("terminal"); }
     else if (command === "view.terminal") setView("terminal");
     else if (command === "view.board") setView("board");
     else if (command === "view.agent") setView("agent");
@@ -198,7 +202,7 @@ function Shell() {
       if (next !== appearance.fontSize) void window.deck.updateSettings({ terminalAppearance: { ...appearance, fontSize: next } });
     } else return false;
     return true;
-  }, [view, activeId, newTab, requestCloseTab, reopenTab, tabs, focusTab, moveTabToLayer, settings, toggleSidebar, setView, mode, setMode]);
+  }, [view, activeId, newTab, requestCloseTab, reopenTab, tabs, focusTab, moveTabToLayer, tabBack, tabForward, settings, toggleSidebar, setView, mode, setMode]);
 
   useEffect(() => window.deck.onMenuCommand(runCommand), [runCommand]);
 
@@ -252,6 +256,7 @@ function Shell() {
           <AgentPage visible={view === "agent"} />
           <ReviewsView visible={view === "reviews"} />
           {view === "board" && <BoardView />}
+          {view === "history" && <HistoryView onOpened={() => setView("terminal")} />}
           {view === "settings" && <SettingsView section={settingsSection} onSection={setSettingsSection} />}
           </div>
         </main>

@@ -55,6 +55,28 @@ const migrations: string[] = [
    ALTER TABLE conv_messages ADD COLUMN source_key TEXT;
    CREATE UNIQUE INDEX idx_conv_source ON conv_messages(session_id, source_key);`,
   `ALTER TABLE agent_sessions ADD COLUMN workspace TEXT`,
+  `CREATE TABLE IF NOT EXISTS tab_history (
+    term_id TEXT PRIMARY KEY,
+    workspace TEXT,
+    layer TEXT,
+    group_id TEXT,
+    cwd TEXT,
+    agent TEXT,
+    title TEXT,
+    session_ids TEXT NOT NULL DEFAULT '[]',
+    opened_at INTEGER NOT NULL,
+    closed_at INTEGER,
+    last_seen INTEGER NOT NULL,
+    active_ms INTEGER NOT NULL DEFAULT 0,
+    reopened INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_tab_history_closed ON tab_history(closed_at);
+  CREATE TABLE IF NOT EXISTS short_titles (
+    key TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    short TEXT NOT NULL,
+    long TEXT NOT NULL
+  );`,
 ];
 
 export function openDb(): Database.Database {

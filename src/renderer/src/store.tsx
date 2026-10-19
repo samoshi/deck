@@ -98,6 +98,9 @@ interface TabStore {
   resumeTab: (termId: string) => Promise<void>;
   /** Lists a terminal opened elsewhere (a split) now, rather than when its created event lands. */
   addCreated: (meta: TermMeta) => void;
+  /** Steps through the tabs focused before and after this one, across layers. */
+  goBack: () => void;
+  goForward: () => void;
   /** Paused tabs still waiting in a layer, by layer id. */
   pausedByLayer: Record<string, number>;
 }
@@ -260,9 +263,17 @@ export function TabProvider({ children }: { children: ReactNode }) {
 
   const dismissWorktreeClose = useCallback(() => setWorktreeClose(undefined), []);
 
+  // Closed tabs of this run come back from memory, into their layer and
+  // group; after a restart the history has them.
   const reopenTab = useCallback(async () => {
     const tab = closed.current.pop();
-    if (tab) await newTab({ agent: tab.agent, cwd: tab.cwd, sessionId: tab.sessionId });
+    if (tab) {
+      window.deck.history.reopened(tab.termId);
+      await newTab({ agent: tab.agent, cwd: tab.cwd, sessionId: tab.sessionId, layer: tab.layerId, group: tab.groupId });
+      return;
+    }
+    const entry = await window.deck.history.takeLastClosed();
+    if (entry) await newTab({ agent: (entry.agent ?? undefined) as TermTab["agent"], cwd: entry.cwd ?? undefined, sessionId: entry.sessionIds.at(-1), layer: entry.layer ?? undefined, group: entry.group ?? undefined });
   }, [newTab]);
 
   // Undoing a group or layer close, which closed several tabs at once. Main
@@ -325,6 +336,7 @@ export function TabProvider({ children }: { children: ReactNode }) {
       layer: activeLayerId ?? "",
       parent: opts.parent,
       name: opts.name?.trim() || `Group ${siblings.length + 1}`,
+      autoName: !opts.name?.trim(),
       color: layerColors[siblings.length % layerColors.length],
     };
     await window.deck.updateSettings({ groups: [...(groups ?? []), group] });
@@ -383,6 +395,40 @@ export function TabProvider({ children }: { children: ReactNode }) {
     setActiveId(termId);
   }, [layers, activeLayer, resumeTab]);
 
+  // Browser-style back and forward over the tabs that have been in front. A
+  // step taken by back or forward is not itself a visit.
+  const visits = useRef<{ stack: string[]; index: number; stepping?: string }>({ stack: [], index: -1 });
+  useEffect(() => {
+    const trail = visits.current;
+    if (!activeId) return;
+    if (trail.stepping === activeId) { trail.stepping = undefined; return; }
+    if (trail.stack[trail.index] === activeId) return;
+    trail.stack = [...trail.stack.slice(0, trail.index + 1), activeId].slice(-100);
+    trail.index = trail.stack.length - 1;
+  }, [activeId]);
+  const step = useCallback((by: -1 | 1) => {
+    const trail = visits.current;
+    for (let index = trail.index + by; index >= 0 && index < trail.stack.length; index += by) {
+      const id = trail.stack[index];
+      if (!tabsRef.current.some((tab) => tab.termId === id)) continue;
+      trail.index = index;
+      trail.stepping = id;
+      focusTab(id);
+      return;
+    }
+  }, [focusTab]);
+  const goBack = useCallback(() => step(-1), [step]);
+  const goForward = useCallback(() => step(1), [step]);
+
+  // Active time in the history counts while a tab is in front of a focused window.
+  useEffect(() => {
+    const report = () => window.deck.history.focus(document.hasFocus() && activeId ? activeId : null);
+    report();
+    window.addEventListener("focus", report);
+    window.addEventListener("blur", report);
+    return () => { window.removeEventListener("focus", report); window.removeEventListener("blur", report); };
+  }, [activeId]);
+
   // A layer switch leaves the active tab behind; the layer's own last running
   // tab takes over, and a layer of paused tabs shows none until one is resumed.
   useEffect(() => {
@@ -427,8 +473,8 @@ export function TabProvider({ children }: { children: ReactNode }) {
   }, {}), [tabs, layers]);
 
   const store = useMemo<TabStore>(
-    () => ({ tabs: layerTabs, allTabs: tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, reopenTabs, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, createGroup, resumeTab, addCreated, pausedByLayer }),
-    [layerTabs, tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, reopenTabs, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, createGroup, resumeTab, addCreated, pausedByLayer],
+    () => ({ tabs: layerTabs, allTabs: tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, reopenTabs, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, createGroup, resumeTab, addCreated, goBack, goForward, pausedByLayer }),
+    [layerTabs, tabs, activeId, ready, newTab, closeTab, requestCloseTab, worktreeClose, dismissWorktreeClose, reopenTab, reopenTabs, focusTab, setTitle, setTabColor, renameTab, moveTab, moveTabToWorkspace, moveTabToLayer, setTabGroup, createGroup, resumeTab, addCreated, goBack, goForward, pausedByLayer],
   );
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }

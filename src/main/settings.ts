@@ -38,7 +38,10 @@ function withDefaults(stored: Partial<Workspace>): Workspace {
   // A workspace saved before layers existed holds its tabs in the one default
   // layer, and a group whose layer has since been deleted goes with it.
   const layers = stored.layers?.length ? stored.layers : defaultWorkspaceSettings.layers;
-  const groups = flattenGroups((stored.groups ?? []).filter((group) => layers.some((layer) => layer.id === group.layer)));
+  // Groups from before auto-naming carry either a placeholder or the prompt a
+  // split copied in; both are what auto-naming replaces.
+  const groups = flattenGroups((stored.groups ?? []).filter((group) => layers.some((layer) => layer.id === group.layer)))
+    .map((group) => group.autoName === undefined && (/^Group \d+$/.test(group.name) || group.name.length > 40) ? { ...group, autoName: true } : group);
   return {
     ...defaultWorkspaceSettings,
     id: stored.id ?? legacyWorkspaceId,

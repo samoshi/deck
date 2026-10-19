@@ -129,9 +129,9 @@ export function TerminalView({ visible }: { visible: boolean }) {
   // A split's second terminal is a tab of its own, so the pair is grouped: the
   // sidebar shows them side by side under a header rather than hiding one
   // inside the other's row.
-  const splitGroup = async (tab: TermTab, name: string): Promise<string | undefined> => {
+  const splitGroup = async (tab: TermTab): Promise<string | undefined> => {
     const placement = splitPlacement(settings?.groups.find((group) => group.id === tab.groupId));
-    return "join" in placement ? placement.join : createGroup([tab.termId], { parent: placement.parent, name });
+    return "join" in placement ? placement.join : createGroup([tab.termId], { parent: placement.parent });
   };
   const split = async (towards: PaneDirection, agent?: Agent) => {
     if (!activeId || splitting.current) return;
@@ -139,7 +139,7 @@ export function TerminalView({ visible }: { visible: boolean }) {
     const { direction, before } = splitFor[towards];
     setUnzoomed(undefined);
     try {
-      const group = activeTab ? await splitGroup(activeTab, activeTitle) : undefined;
+      const group = activeTab ? await splitGroup(activeTab) : undefined;
       const meta = await window.deck.term.create({ cwd: settings?.newTerminalCwd.split === "default" ? undefined : cwd, agent, group, layer: activeTab?.layerId });
       addCreated(meta);
       setLayouts((layouts) => {
@@ -162,7 +162,7 @@ export function TerminalView({ visible }: { visible: boolean }) {
     const { direction, before } = splitFor[towards];
     setUnzoomed(undefined);
     try {
-      const group = await splitGroup(targetTab, targetTab.customTitle || targetTab.title);
+      const group = await splitGroup(targetTab);
       if (group) setTabGroup(termId, group);
       setLayouts((layouts) => arrangePane(layouts, termId, target, direction, before));
       // A paused tab waits in its new pane instead: resuming here would start

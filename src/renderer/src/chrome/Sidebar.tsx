@@ -18,6 +18,7 @@ import { layerColors, layerOf, type TabGroup } from "../../../shared/settings.js
 import { useAttentionCount } from "../agents/attention.js";
 import { useTips } from "../tips/TipsProvider.js";
 import { adoptPane } from "../lib/bus.js";
+import { FitText, useShortTitle } from "./FitTitle.js";
 import type { View } from "../App.js";
 
 /** `indent` is how deep the row sits: 0 ungrouped, 1 in a group, 2 in the
@@ -66,7 +67,13 @@ function SessionRow({ tab, session, index, indent = 0, group, onGroupWith, onPla
   const cwd = session?.cwd || tab.cwd;
   const git = useGitSummary(cwd);
   const agent = session?.agent ?? tab.agent;
-  const title = tab.customTitle || session?.title || (tab.title === "shell" ? cwd?.split("/").pop() : tab.title) || "Terminal";
+  const fullTitle = tab.customTitle || session?.title || (tab.title === "shell" ? cwd?.split("/").pop() : tab.title) || "Terminal";
+  // An agent tab is labelled by a short name for its work rather than its
+  // first prompt; a name the user typed always wins.
+  const sessionKey = session?.session_id ?? tab.sessionId;
+  const named = useShortTitle(!tab.customTitle && agent && sessionKey ? `session:${sessionKey}` : undefined, session?.title ?? (tab.paused ? tab.title : undefined));
+  const title = named?.long ?? fullTitle;
+  const labels = named ? [named.long, named.short] : [fullTitle];
   const active = activeId === tab.termId;
   const waiting = session && ["needs_input", "needs_review"].includes(session.status);
   const tone = session ? statusTones[session.status] : undefined;
@@ -103,7 +110,7 @@ function SessionRow({ tab, session, index, indent = 0, group, onGroupWith, onPla
           onClick={(event) => event.stopPropagation()} onBlur={() => { renameTab(tab.termId, name); setRenaming(false); }}
           onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Enter") { renameTab(tab.termId, name); setRenaming(false); } if (event.key === "Escape") setRenaming(false); }}
           className="w-full rounded bg-bg px-1 text-xs text-ink outline-none" /> :
-          <div className={`truncate text-[12px] ${tab.paused ? "text-mut" : "text-soft"}`} title={title}>{title}</div>}
+          <FitText options={labels} title={fullTitle} className={`text-[12px] ${tab.paused ? "text-mut" : "text-soft"}`} />}
         <div className="mt-0.5 flex items-center gap-1 truncate text-[10px] text-mut">
           {git ? <><Icon name="branch" size={10} /><span className="truncate">{git.branch}</span></> : <span className="truncate">{shortPath(cwd)}</span>}
           {agent && <span className="ml-auto shrink-0 text-dim">{agentLabels[agent]}</span>}
@@ -141,8 +148,10 @@ function SessionRow({ tab, session, index, indent = 0, group, onGroupWith, onPla
 /** A group's header: its name, how many tabs it holds and, when collapsed, how
  *  many of them want something. Collapsing hides the rows, never the tabs:
  *  they keep running and the number chords still reach them. */
-function GroupHeader({ group, count, waiting, nested, onToggle, onChange, onDelete, onClose, onDropTab }: {
+function GroupHeader({ group, source, count, waiting, nested, onToggle, onChange, onDelete, onClose, onDropTab }: {
   group: TabGroup;
+  /** What its tabs are about, which an auto-named group is named from. */
+  source: string;
   count: number;
   /** Tabs inside whose agent is waiting on the user. */
   waiting: number;
@@ -166,7 +175,9 @@ function GroupHeader({ group, count, waiting, nested, onToggle, onChange, onDele
     window.addEventListener("mousedown", dismiss);
     return () => window.removeEventListener("mousedown", dismiss);
   }, [menu]);
-  const rename = () => { onChange({ ...group, name: name.trim() || group.name }); setRenaming(false); };
+  const rename = () => { onChange({ ...group, name: name.trim() || group.name, autoName: false }); setRenaming(false); };
+  const named = useShortTitle(group.autoName ? `group:${group.id}` : undefined, source);
+  const labels = group.autoName && named ? [named.long, named.short] : [group.name];
   return <div className="group relative"
     onDragOver={(event) => { if (event.dataTransfer.types.includes("text/deck-tab")) { event.preventDefault(); setOver(true); } }}
     onDragLeave={() => setOver(false)}
@@ -183,7 +194,7 @@ function GroupHeader({ group, count, waiting, nested, onToggle, onChange, onDele
           } : undefined}
           className={`flex w-full items-center gap-1.5 py-1.5 pr-2 text-left text-[11px] ${nested ? "pl-5" : "pl-2"} ${group.color ? "" : over ? "bg-card2" : "hover:bg-card"}`}>
           <span aria-hidden className="w-2 text-dim">{group.collapsed ? "\u25b8" : "\u25be"}</span>
-          <span className="min-w-0 flex-1 truncate text-soft">{group.name}</span>
+          <FitText options={labels} title={labels[0]} className="min-w-0 flex-1 text-soft" />
           {waiting > 0 && group.collapsed && <span aria-label={`${waiting} waiting`} className="rounded-full bg-orange/20 px-1.5 text-[10px] text-orange">{waiting}</span>}
           <span className="text-dim group-hover:invisible">{count}</span>
         </button>}
@@ -430,7 +441,8 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
     // subgroups included, so nothing disappears without a number for it.
     const held = [...members, ...children.flatMap(membersOf)];
     held.forEach((tab) => done.add(tab.termId));
-    rows.push(<GroupHeader key={group.id} group={group} count={held.length} waiting={waitingIn(held)} nested={depth > 0}
+    const source = held.map((tab) => tab.customTitle || byTerm.get(tab.termId)?.title || (tab.title === "shell" ? tab.cwd?.split("/").pop() : tab.title) || "").sort().join("\n");
+    rows.push(<GroupHeader key={group.id} group={group} source={source} count={held.length} waiting={waitingIn(held)} nested={depth > 0}
       onToggle={() => saveGroups(layerGroups.map((other) => other.id === group.id ? { ...other, collapsed: !other.collapsed } : other))}
       onChange={(next) => saveGroups(layerGroups.map((other) => other.id === group.id ? next : other))}
       onDelete={() => ungroup(group)}
@@ -471,6 +483,7 @@ export function Sidebar({ view, onView }: { view: View; onView: (view: View) => 
         {(["claude", "codex"] as const).map((agent) => <button key={agent} aria-label={`New ${agentLabels[agent]}`} onClick={() => void launch(agent)} className="menu-item"><Icon name="sparkle" />New {agentLabels[agent]}{agent === defaultAgent && <span className="ml-auto text-dim">{formatChord(keybinds["tab.newAgent"])}</span>}</button>)}
         <div className="my-1 border-t border-edge2" />
         <button disabled={!tabs.length} onClick={closeAllTabs} className="menu-item disabled:opacity-40"><Icon name="x" />Close all tabs</button>
+        <button onClick={() => { setMenu(false); onView("history"); }} className="menu-item"><Icon name="clock" />History<span className="ml-auto text-dim">{formatChord(keybinds.history)}</span></button>
         <button onClick={() => { setMenu(false); setArchive(true); }} className="menu-item"><Icon name="terminal" />Session archive</button>
         <button onClick={() => { setMenu(false); setWorktreesOpen(true); }} className="menu-item"><Icon name="layers" />Worktrees</button>
         <button onClick={() => { setMenu(false); onView("settings"); }} className="menu-item"><Icon name="cog" />Settings</button>

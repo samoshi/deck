@@ -164,6 +164,8 @@ export interface TabGroup {
    *  subgroup never has children of its own, so the sidebar is two deep. */
   parent?: string;
   name: string;
+  /** Named from its tabs by deck, until the user names it. */
+  autoName?: boolean;
   color?: string;
   collapsed?: boolean;
 }

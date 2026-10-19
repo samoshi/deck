@@ -4,6 +4,8 @@ import type { FileEntry, LocalFile } from "../main/files.js";
 import type { Agent } from "../shared/agents.js";
 import type { KeybindCommand } from "../shared/keybinds.js";
 import type { TermCreateOptions } from "../main/pty.js";
+import type { HistoryEntry } from "../main/history.js";
+import type { ShortTitle } from "../main/titles.js";
 import { contextBridge, ipcRenderer, webFrame, webUtils } from "electron";
 import type { ConvMessage, IndexProgress, SearchHit } from "../main/indexer.js";
 import type { GithubHit, RepoDir, RepoHit } from "../main/providers.js";
@@ -161,6 +163,25 @@ const api = {
     list: (): Promise<LinkedWorktree[]> => ipcRenderer.invoke("worktrees:list"),
     remove: (worktree: string, deleteBranch = false): Promise<RemoveResult> =>
       ipcRenderer.invoke("worktrees:remove", worktree, deleteBranch),
+  },
+  titles: {
+    /** The short and longer names for `text`; undefined until a model has named it. */
+    get: (key: string, text: string): Promise<ShortTitle | undefined> => ipcRenderer.invoke("titles:get", key, text),
+    onChanged: (cb: (key: string, title: ShortTitle) => void): (() => void) => {
+      const listener = (_e: unknown, key: string, title: ShortTitle) => cb(key, title);
+      ipcRenderer.on("titles:changed", listener);
+      return () => ipcRenderer.removeListener("titles:changed", listener);
+    },
+  },
+  history: {
+    /** Every tab deck has opened, newest first, with what its agent spent. */
+    list: (): Promise<HistoryEntry[]> => ipcRenderer.invoke("history:list"),
+    /** The tab in front of a focused window, or null on blur; active time is counted from this. */
+    focus: (termId: string | null): void => ipcRenderer.send("history:focus", termId),
+    forget: (termId?: string): Promise<void> => ipcRenderer.invoke("history:forget", termId),
+    /** The latest closed tab not yet reopened, marked reopened as it is handed over. */
+    takeLastClosed: (): Promise<HistoryEntry | undefined> => ipcRenderer.invoke("history:takeLastClosed"),
+    reopened: (termId: string): void => ipcRenderer.send("history:reopened", termId),
   },
   sessions: {
     list: (): Promise<AgentSession[]> => ipcRenderer.invoke("sessions:list"),

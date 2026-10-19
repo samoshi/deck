@@ -112,6 +112,8 @@ import { clearFrames, getFrames, onCanvasChanged, removeFrame, toggleTask, updat
 import { invalidateSessionPullRequests, sessionPullRequests } from "./sessionPrs.js";
 import { registerCustomButtons } from "./customButtons.js";
 import { getSettings, updateSettings } from "./settings.js";
+import { titleFor } from "./titles.js";
+import { forgetHistory, listHistory, markReopened, noteSessions, setFocus, takeLastClosed } from "./history.js";
 
 /** Which action brought a window up. Mapped to a window role by windowMode. */
 type EntryPoint = "hotkey" | "manual";
@@ -384,7 +386,13 @@ app.whenReady().then(async () => {
   ipcMain.handle("search:repos", (_e, q: string) => searchRepos(q));
   ipcMain.handle("search:github", (_e, q: string) => searchGithub(q));
   ipcMain.handle("repos:list", () => listRepos());
-  onSessionsChanged(() => broadcast("sessions:changed", listSessions()));
+  onSessionsChanged(() => { const sessions = listSessions(); noteSessions(sessions); broadcast("sessions:changed", sessions); });
+  ipcMain.handle("history:list", () => listHistory());
+  ipcMain.handle("titles:get", (_e, key: string, text: string) => titleFor(key, text));
+  ipcMain.on("history:focus", (_e, termId: string | null) => setFocus(termId));
+  ipcMain.handle("history:forget", (_e, termId?: string) => forgetHistory(termId));
+  ipcMain.handle("history:takeLastClosed", () => takeLastClosed(getSettings().activeWorkspace));
+  ipcMain.on("history:reopened", (_e, termId: string) => markReopened(termId));
   ipcMain.handle("sessions:list", () => listSessions());
   ipcMain.handle("sharing:summary", () => sharingSummary());
   ipcMain.handle("sharing:current", async (_e, cwd?: string) =>
