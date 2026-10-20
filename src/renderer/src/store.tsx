@@ -148,6 +148,19 @@ export function TabProvider({ children }: { children: ReactNode }) {
   activeGroup.current = tabs.find((tab) => tab.termId === activeId)?.groupId;
   const resuming = useRef(new Set<string>());
   const closed = useRef<TermTab[]>([]);
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
+
+  // A new tab opens right after the one in view, not at the end of the strip,
+  // and the order is saved so a reload keeps it there.
+  const insertTab = useCallback((tabs: TermTab[], tab: TermTab) => {
+    if (tabs.some((t) => t.termId === tab.termId)) return tabs;
+    const i = tabs.findIndex((t) => t.termId === activeIdRef.current);
+    const next = [...tabs];
+    next.splice(i < 0 ? next.length : i + 1, 0, tab);
+    localStorage.setItem("deck.tab.order", JSON.stringify(next.map((t) => t.termId)));
+    return next;
+  }, []);
 
   // Terminals live in the pty host, so a reload (or a restarted main
   // process) finds the previous tabs still running. The list is re-read when
@@ -199,16 +212,16 @@ export function TabProvider({ children }: { children: ReactNode }) {
         if (live) { setActiveId(live.termId); return; }
       }
       const meta = await window.deck.term.create(create);
-      setTabs((tabs) => tabs.some((tab) => tab.termId === meta.id) ? tabs : [...tabs, toTab(meta)]);
+      setTabs((tabs) => insertTab(tabs, toTab(meta)));
       setActiveId(meta.id);
     } finally {
       if (sessionId) resuming.current.delete(sessionId);
     }
-  }, []);
+  }, [insertTab]);
 
   const addCreated = useCallback((meta: TermMeta) => {
-    setTabs((tabs) => tabs.some((tab) => tab.termId === meta.id) ? tabs : [...tabs, toTab(meta)]);
-  }, []);
+    setTabs((tabs) => insertTab(tabs, toTab(meta)));
+  }, [insertTab]);
   useEffect(() => window.deck.term.onCreated(addCreated), [addCreated]);
 
   // Starts the terminal a paused tab stands for, in its own place in the list.
