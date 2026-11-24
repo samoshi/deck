@@ -1,5 +1,5 @@
 import { terminalEnv } from "./ptyEnv.js";
-import { agentCommand, sessionAgent, sessionKey, type AgentLaunch } from "../shared/agents.js";
+import { agentCommand, agentUpdateCommand, sessionAgent, sessionKey, type AgentLaunch } from "../shared/agents.js";
 import { app, BrowserWindow, ipcMain, type WebContents } from "electron";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -97,7 +97,7 @@ function spawnRequest(opts: TermCreateOptions): SpawnRequest {
   return {
     shell: userShell,
     // The tab drops back to the prompt when the command exits.
-    args: shellArgs(command),
+    args: shellArgs(agent && command && getSettings().updateAgentsOnLaunch && !isWindows ? `${agentUpdateCommand(agent, app.getPath("userData"))}; ${command}` : command),
     cwd: startCwd(opts.cwd),
     env: {
       ...terminalEnv(process.env),

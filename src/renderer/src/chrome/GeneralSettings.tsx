@@ -51,6 +51,7 @@ export function GeneralSettings() {
               </select>
             </Field>
           </div>
+          <Toggle checked={settings.updateAgentsOnLaunch} onChange={(updateAgentsOnLaunch) => void update({ updateAgentsOnLaunch })}>Update Claude Code and Codex before a tab starts them (at most every 6 hours, Ctrl-C skips)</Toggle>
           <div className="grid grid-cols-2 gap-4">
             {([["tab", "New tab starts in"], ["split", "Split pane starts in"]] as const).map(([action, label]) => (
               <Field key={action} label={label}>
