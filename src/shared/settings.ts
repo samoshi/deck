@@ -305,6 +305,8 @@ export interface DeckSettings extends WorkspaceSettings {
   /** Shortcut overrides by command; missing commands use the defaults. */
   keybinds: Partial<Keybinds>;
   defaultAgent: Agent;
+  /** Upgrade the Claude Code or Codex CLI before a tab starts it. */
+  updateAgentsOnLaunch: boolean;
   /** Claude model alias or id used by deck's own orchestrator turns. */
   askModel: string;
   defaultView: DefaultView;
@@ -380,6 +382,7 @@ export const defaultSettings: DeckSettings = {
   activeWorkspace: "default",
   keybinds: {},
   defaultAgent: "claude",
+  updateAgentsOnLaunch: true,
   askModel: "sonnet",
   defaultView: "terminal",
   restoreTabs: "active",
